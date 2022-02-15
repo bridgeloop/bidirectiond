@@ -9,10 +9,6 @@
 #include "tls_put.h"
 #include "core_settings.h"
 
-#ifndef BIDIRECTIOND_BUFFERED_READ_BUF_SIZE
-#define BIDIRECTIOND_BUFFERED_READ_BUF_SIZE 0x200
-#endif
-
 struct buffered_read_ctx {
 	unsigned int idx;
 	unsigned int len;
