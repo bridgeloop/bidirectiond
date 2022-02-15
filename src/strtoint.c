@@ -40,7 +40,6 @@ bool bdd_strtoull(char *str, size_t len, unsigned long long int *llu) {
 	if (len == 0) {
 		return false;
 	}
-	bool negative = false;
 	long long int r = 0;
 	long long int t;
 	char d;
