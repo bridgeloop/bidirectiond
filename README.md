@@ -1,3 +1,3 @@
-# bidirectiond-experimental
+# bidirectiond
 
-experimental modular "reverse" proxy written in c
+wip program that will eventually be a http "reverse" proxy
