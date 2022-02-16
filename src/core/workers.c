@@ -32,6 +32,7 @@ void *bdd_worker(struct bdd_worker *worker) {
 	BDD_DEBUG_LOG("thread received work!\n");
 	
 	if (unlikely(atomic_load(&(instance->exiting)))) {
+		pthread_mutex_unlock(&(worker->work_mutex));
 		bdd_thread_exit(instance);
 	}
 	
