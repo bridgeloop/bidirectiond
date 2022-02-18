@@ -80,7 +80,7 @@ int main(int argc, char *argv[], char *env[]) {
 	int input_fd = -1;
 	struct sockaddr_un input_addr = { 0, .sun_family = AF_UNIX, };
 	int sig_fd = -1;
-	
+
 	// name_descriptions
 	if ((settings.name_descriptions = hashmap_create((void (*)(void *))&(bdd_name_description_destroy))) == NULL) {
 		fputs("failed to allocate settings.name_descriptions\n", stderr);
@@ -91,7 +91,7 @@ int main(int argc, char *argv[], char *env[]) {
 	if (argc < 1 /* linux */) {
 		arg = argv;
 	}
-	bool use_ipv4 = false;
+	bool disable_ipv6 = false;
 	int backlog = 0;
 	unsigned short int port = 443;
 
@@ -103,7 +103,7 @@ int main(int argc, char *argv[], char *env[]) {
 		becomes (or already is) root. */
 	uid_t nuid = getuid();
 	gid_t ngid = getgid();
-	
+
 	setpwent();
 	for (struct passwd *pw = getpwent(); pw != NULL; pw = getpwent()) {
 		if (strcmp(pw->pw_name, BIDIRECTIOND_USERNAME) == 0) {
@@ -122,7 +122,7 @@ int main(int argc, char *argv[], char *env[]) {
 		}
 	}
 	endpwent();
-	
+
 	struct locked_hashmap *lh = hashmap_lock(settings.name_descriptions);
 	size_t big_alloc_sz = 0;
 
@@ -166,8 +166,8 @@ int main(int argc, char *argv[], char *env[]) {
 			EXPECT_ARGS(1);
 			stoi(&(settings.n_connections), arg[1]);
 			arg += 2;
-		} else if (strcmp((*arg), "--listen-ipv4") == 0) {
-			use_ipv4 = true;
+		} else if (strcmp((*arg), "--disable-ipv6") == 0) {
+			disable_ipv6 = true;
 			arg += 1;
 		} else if (strcmp((*arg), "--use-work-queue") == 0) {
 			settings.use_work_queues = true;
@@ -269,7 +269,7 @@ int main(int argc, char *argv[], char *env[]) {
 				"--backlog: set the tcp backlog for sv_socket\n"
 				"-p: set the tcp port to bind sv_socket to\n"
 				"--max-connections: the max amount of bdd_connections structs\n"
-				"--listen-ipv4: sv_socket should not use ipv6\n"
+				"--disable-ipv6: sv_socket should not use ipv6\n"
 				"--use-work-queue: do not wait for worker threads before giving them work\n"
 				"--nohup: SIG_IGN SIGHUP\n"
 				"-c: load pem-encoded tls credentials (e.g. `-c cert.pem encrypted-key.pem name-of-password-environment-variable`)\n"
@@ -296,20 +296,20 @@ int main(int argc, char *argv[], char *env[]) {
 	if (getuid() != 0 && geteuid() == 0) {
 		setuid(0);
 	}
-	
+
 	if (port < 1024 && getuid() != 0) {
 		// root required to obtain port 443
 		fputs("must be run as root\n", stderr);
 		goto main__clean_up;
 	}
-	
+
 	// set up socket
 	union {
 		struct sockaddr_in inet4;
 		struct sockaddr_in6 inet6;
 	} sv_addr = { 0, };
 	size_t sv_addr_sz = 0;
-	if (use_ipv4) {
+	if (disable_ipv6) {
 		settings.sv_socket = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
 		sv_addr_sz = sizeof(struct sockaddr_in);
 		sv_addr.inet4.sin_family = AF_INET;
