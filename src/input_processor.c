@@ -175,14 +175,20 @@ void input_processor(int sfd, char *br_buf, int br_buf_sz) {
 		if ((key = PEM_read_bio_PrivateKey(bio, NULL, bdd_cp_pwd, &(cp_ctx))) == NULL) {
 			goto input_processor__tls_pem_load_err;
 		}
-		if (SSL_CTX_use_certificate(ctx, cert) == 1 &&
-			SSL_CTX_use_PrivateKey(ctx, key) == 1) {
-			struct locked_hashmap *lh = hashmap_lock(settings.name_descriptions);
-			if (tls_put(lh, &(ctx))) {
-				e |= 0b10;
-			}
-			locked_hashmap_unlock(&(lh));
+		if (SSL_CTX_use_certificate(ctx, cert) != 1 || SSL_CTX_use_PrivateKey(ctx, key) != 1) {
+			goto input_processor__tls_pem_load_err;
 		}
+		SSL_CTX_set_ecdh_auto(ctx, 1);
+		if (SSL_CTX_set_cipher_list(ctx, "HIGH:!aNULL:!MD5") != 1) {
+			goto input_processor__tls_pem_load_err;
+		}
+		SSL_CTX_set_max_proto_version(ctx, TLS1_2_VERSION);
+		SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
+		struct locked_hashmap *lh = hashmap_lock(settings.name_descriptions);
+		if (tls_put(lh, &(ctx))) {
+			e |= 0b10;
+		}
+		locked_hashmap_unlock(&(lh));
 		input_processor__tls_pem_load_err:;
 		if (ctx != NULL) {
 			SSL_CTX_free(ctx);
