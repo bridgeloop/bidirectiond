@@ -97,8 +97,6 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 				free(instance);
 				return NULL;
 			}
-			SSL_CTX_set_mode(BDD_GLOBAL_CL_SSL_CTX, SSL_MODE_RELEASE_BUFFERS);
-			SSL_CTX_set_options(BDD_GLOBAL_CL_SSL_CTX, SSL_OP_NO_COMPRESSION);
 		}
 		if ((BDD_GLOBAL_RC += 1) <= 0) {
 			atomic_flag_clear(&(BDD_GLOBAL_MUTEX));
@@ -167,9 +165,15 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 	instance->accept.pollfds[0].events = POLLIN;
 	instance->accept.pollfds[1].fd = instance->accept.eventfd;
 	instance->accept.pollfds[1].events = POLLIN;
-	if ((instance->accept.ssl_ctx = SSL_CTX_new(TLS_server_method())) == NULL || SSL_CTX_set_cipher_list(instance->accept.ssl_ctx, "AES256-SHA256") == 0) {
+	if ((instance->accept.ssl_ctx = SSL_CTX_new(TLS_server_method())) == NULL) {
 		goto bdd_go__err;
 	}
+	SSL_CTX_set_ecdh_auto(instance->accept.ssl_ctx, 1);
+	if (SSL_CTX_set_cipher_list(instance->accept.ssl_ctx, "HIGH:!aNULL:!MD5") != 1) {
+		goto bdd_go__err;
+	}
+	SSL_CTX_set_max_proto_version(instance->accept.ssl_ctx, TLS1_2_VERSION);
+	SSL_CTX_set_options(instance->accept.ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
 	SSL_CTX_set_tlsext_servername_callback(instance->accept.ssl_ctx, &(bdd_use_correct_ctx));
 	SSL_CTX_set_tlsext_servername_arg(instance->accept.ssl_ctx, &(instance->accept.accept_ctx));
 	if (uses_internal_services) {

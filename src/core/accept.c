@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <signal.h>
+#include <openssl/err.h>
 
 int bdd_use_correct_ctx(SSL *client_ssl, int *_, struct bdd_accept_ctx *ctx) {
 	int r = SSL_TLSEXT_ERR_ALERT_FATAL;
@@ -123,7 +124,8 @@ void *bdd_accept(struct bdd_instance *instance) {
 		BDD_DEBUG_LOG("failed to obtain name_descriptions\n");
 		goto bdd_accept__err;
 	}
-	if (SSL_accept(client_ssl) < 0) {
+	if (SSL_accept(client_ssl) <= 0) {
+		ERR_print_errors_fp(stderr);
 		BDD_DEBUG_LOG("rejected tls setup\n");
 		goto bdd_accept__err;
 	}

@@ -72,9 +72,11 @@ void storlim(rlim_t *dest, char *str) {
 int main(int argc, char *argv[], char *env[]) {
 	puts("bidirectiond version "PROG_SEMVER);
 	// set up tls
-	if (!OPENSSL_init_ssl(0, NULL)) {
-		return 1; // nothing to clean up
-	}
+	SSL_library_init();
+	OpenSSL_add_all_algorithms();
+	SSL_load_error_strings();
+	ERR_load_BIO_strings();
+	ERR_load_crypto_strings();
 	
 	struct bdd_instance *bdd_instance = NULL;
 	int input_fd = -1;
@@ -203,6 +205,13 @@ int main(int argc, char *argv[], char *env[]) {
 				fputs("the private key file must be encrypted\n", stderr);
 				goto main__arg_creds_err;
 			}
+			SSL_CTX_set_ecdh_auto(ctx, 1);
+			if (SSL_CTX_set_cipher_list(ctx, "HIGH:!aNULL:!MD5") != 1) {
+				fputs("failed to set the ssl_ctx's cipher list\n", stderr);
+				goto main__arg_creds_err;
+			}
+			SSL_CTX_set_max_proto_version(ctx, TLS1_2_VERSION);
+			SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
 			if (!tls_put(lh, &(ctx))) {
 				fputs("seemingly invalid certificate file\n", stderr);
 				goto main__arg_creds_err;
