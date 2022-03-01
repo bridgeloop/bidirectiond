@@ -1,9 +1,9 @@
 #include <bddc/api.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
 #include <netdb.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
 struct general_service__associated {
 	bdd_io_id client;
 	bdd_io_id service;
@@ -46,11 +46,11 @@ bool general_service__connections_init(struct bdd_connections *connections, void
 		if ((sock = socket(addrinfo->ai_family, addrinfo->ai_socktype, addrinfo->ai_protocol)) < 0) {
 			continue;
 		}
-		
+
 		if (connect(sock, addrinfo->ai_addr, addrinfo->ai_addrlen) >= 0) {
 			break;
 		}
-		
+
 		close(sock);
 		sock = -1;
 	}
@@ -79,7 +79,11 @@ void general_service__service_info_destructor(void *hint) {
 }
 static bool handle_s(struct locked_hashmap *name_descriptions, struct bdd_internal_service *service, char *scope, char *addr, char *port, bool use_tls) {
 	struct general_service__info *info = malloc(sizeof(struct general_service__info));
-	struct addrinfo hints = { 0, .ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM, };
+	struct addrinfo hints = {
+		0,
+		.ai_family = AF_UNSPEC,
+		.ai_socktype = SOCK_STREAM,
+	};
 	struct addrinfo *res = NULL;
 	if (info == NULL) {
 		goto handle_s__err;
@@ -97,7 +101,7 @@ static bool handle_s(struct locked_hashmap *name_descriptions, struct bdd_intern
 		goto handle_s__err;
 	}
 	return true;
-	handle_s__err:;
+handle_s__err:;
 	if (info != NULL) {
 		free(info);
 	}

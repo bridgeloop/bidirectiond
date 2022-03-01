@@ -1,6 +1,6 @@
+#include <openssl/ssl.h>
 #include <stdatomic.h>
 #include <stddef.h>
-#include <openssl/ssl.h>
 #include <string.h>
 
 void bdd_mutex_preinit(pthread_mutex_t *dest) {

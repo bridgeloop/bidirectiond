@@ -1,6 +1,6 @@
-#include <string.h>
-#include <assert.h>
 #include "cp_pwd.h"
+#include <assert.h>
+#include <string.h>
 
 int bdd_cp_pwd(char *dest, int dest_sz, int rwflag, void *_ctx) {
 	assert(rwflag == 0);

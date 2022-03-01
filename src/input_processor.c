@@ -1,20 +1,21 @@
 #include "input_processor.h"
+#include "core_settings.h"
 #include "cp_pwd.h"
-#include <unistd.h>
-#include <sys/stat.h>
+#include "tls_put.h"
+#include <errno.h>
 #include <fcntl.h>
 #include <openssl/ssl.h>
 #include <pthread.h>
-#include <errno.h>
-#include "tls_put.h"
-#include "core_settings.h"
+#include <sys/stat.h>
+#include <unistd.h>
 
 struct buffered_read_ctx {
 	unsigned int idx;
 	unsigned int len;
 	char byte;
 };
-#define BUFFERED_READ_CTX_INITALISER { .idx = 0, .len = 0, .byte = 0, }
+#define BUFFERED_READ_CTX_INITALISER \
+	{ .idx = 0, .len = 0, .byte = 0, }
 static bool buffered_read(int fd, char *buf, int buf_sz, struct buffered_read_ctx *ctx) {
 	if (buf_sz < 0) {
 		return false;
@@ -55,7 +56,7 @@ void input_processor(int sfd, char *br_buf, int br_buf_sz) {
 		},
 	};
 
-	input_processor__process:;
+input_processor__process:;
 	uint8_t n_matches = sizeof(match_list) / sizeof(match_list[0]);
 	uint8_t match;
 	bool matches[sizeof(match_list) / sizeof(match_list[0])];
@@ -98,7 +99,7 @@ void input_processor(int sfd, char *br_buf, int br_buf_sz) {
 		}
 	}
 
-	input_processor__matched:;
+input_processor__matched:;
 	if (match == 0 /* TLS_PEM_LOAD */) {
 		SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
 		BIO *bio = NULL;
@@ -189,7 +190,7 @@ void input_processor(int sfd, char *br_buf, int br_buf_sz) {
 			e |= 0b10;
 		}
 		locked_hashmap_unlock(&(lh));
-		input_processor__tls_pem_load_err:;
+	input_processor__tls_pem_load_err:;
 		if (ctx != NULL) {
 			SSL_CTX_free(ctx);
 		}
@@ -214,7 +215,7 @@ void input_processor(int sfd, char *br_buf, int br_buf_sz) {
 		puts("input_processor got PING!");
 	}
 
-	input_processor__wait:;
+input_processor__wait:;
 	while (br_ctx.byte != 1) {
 		if (!buffered_read()) {
 			goto input_processor__err;
@@ -224,10 +225,10 @@ void input_processor(int sfd, char *br_buf, int br_buf_sz) {
 		}
 		puts("extraneous byte sent to input_processor");
 	}
-	
+
 	goto input_processor__process;
 
-	input_processor__err:;
+input_processor__err:;
 	shutdown(fd, SHUT_RDWR);
 	close(fd);
 	return;

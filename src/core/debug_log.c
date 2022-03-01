@@ -1,9 +1,9 @@
 #if !defined(NDEBUG) && defined(BIDIRECTIOND_VERBOSE_DEBUG_LOG)
-#include <stdio.h>
 #include <openssl/ssl.h>
 #include <pthread.h>
-#include <unistd.h>
+#include <stdio.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 int bdd_vdl_SSL_write(void *x, char *data, size_t len) {
 	if (len == 0) {

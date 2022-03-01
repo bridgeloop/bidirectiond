@@ -1,14 +1,14 @@
 #include "internal.h"
 #include <errno.h>
-#include <unistd.h>
-#include <sys/epoll.h>
 #include <signal.h>
+#include <sys/epoll.h>
+#include <unistd.h>
 
 void *bdd_serve(struct bdd_instance *instance) {
 	pthread_sigmask(SIG_BLOCK, &(instance->sigmask), NULL);
 	unsigned short int next_worker_id = 0;
 	struct bdd_workers *workers = &(instance->workers);
-	bdd_serve__find_connections:;
+bdd_serve__find_connections:;
 
 	BDD_DEBUG_LOG("linked_connections.head is %p\n", instance->linked_connections.head);
 	BDD_DEBUG_LOG("polling\n");
@@ -33,30 +33,31 @@ void *bdd_serve(struct bdd_instance *instance) {
 		struct bdd_connections *next = (*connections)->next;
 		(*connections)->working = false;
 		bool broken = true;
-		if (!(*connections)->broken) for (bdd_io_id idx = 0; idx < bdd_connections_n_max_io((*connections)); ++idx) {
-			int fd = (*connections)->io[idx].fd;
-			if (fd < 0) {
-				continue;
-			}
-			struct epoll_event event = {
-				.events = EPOLLIN,
-				.data = {
-					.ptr = (*connections),
-				},
-			};
-			if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
-				for (bdd_io_id idx2 = 0; idx2 < idx; ++idx2) {
-					fd = (*connections)->io[idx2].fd;
-					if (fd >= 0) {
-						int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
-						assert(r == 0);
-					}
+		if (!(*connections)->broken)
+			for (bdd_io_id idx = 0; idx < bdd_connections_n_max_io((*connections)); ++idx) {
+				int fd = (*connections)->io[idx].fd;
+				if (fd < 0) {
+					continue;
 				}
-				broken = true;
-				break;
+				struct epoll_event event = {
+					.events = EPOLLIN,
+					.data = {
+						.ptr = (*connections),
+					},
+				};
+				if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
+					for (bdd_io_id idx2 = 0; idx2 < idx; ++idx2) {
+						fd = (*connections)->io[idx2].fd;
+						if (fd >= 0) {
+							int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+							assert(r == 0);
+						}
+					}
+					broken = true;
+					break;
+				}
+				broken = false;
 			}
-			broken = false;
-		}
 		if (broken) {
 			bdd_connections_deinit((*connections));
 			bdd_connections_release(instance, connections);
@@ -64,15 +65,15 @@ void *bdd_serve(struct bdd_instance *instance) {
 		(*connections) = next;
 	}
 	pthread_mutex_unlock(&(instance->linked_connections.mutex));
-	
+
 	if (unlikely(atomic_load(&(instance->exiting)))) {
 		bdd_thread_exit(instance);
 	}
-	
+
 	for (int idx = 0; idx < n_events; ++idx) {
 		struct epoll_event *event = &(instance->epoll_oevents[idx]);
 		struct bdd_connections *connections = event->data.ptr;
-		
+
 		if (connections == NULL) {
 			continue;
 		}
@@ -85,7 +86,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 		if (already_working) {
 			continue;
 		}
-		
+
 		bool broken = false;
 		for (bdd_io_id io_id = 0; io_id < bdd_connections_n_max_io(connections); ++io_id) {
 			if (connections->io[io_id].fd < 0) {
@@ -101,7 +102,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 			int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, connections->io[io_id].fd, NULL);
 			assert(r == 0);
 		}
-		
+
 		if (broken) {
 			BDD_DEBUG_LOG("found broken connections struct\n");
 			bdd_connections_deinit(connections);
@@ -138,6 +139,6 @@ void *bdd_serve(struct bdd_instance *instance) {
 			pthread_mutex_unlock(&(worker->work_mutex));
 		}
 	}
-	
+
 	goto bdd_serve__find_connections;
 }

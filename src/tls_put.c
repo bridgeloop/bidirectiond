@@ -1,14 +1,14 @@
-#include <string.h>
-#include <openssl/x509v3.h>
 #include "tls_put.h"
 #include "core_settings.h"
+#include <openssl/x509v3.h>
+#include <string.h>
 
 // hashmap_lock call makes it thread-safe
 bool tls_put(struct locked_hashmap *ns, SSL_CTX **ctx_ref) {
 	// take the ref
 	SSL_CTX *ctx = *ctx_ref;
 	*ctx_ref = NULL;
-	
+
 	bool should_up_rc = false;
 	GENERAL_NAMES *dns_alt_names = X509_get_ext_d2i(SSL_CTX_get0_certificate(ctx), NID_subject_alt_name, 0, 0);
 	if (dns_alt_names != NULL) {
@@ -60,11 +60,11 @@ bool tls_put(struct locked_hashmap *ns, SSL_CTX **ctx_ref) {
 			}
 		}
 	}
-	
+
 	if (!should_up_rc) /* if `ctx` is not referenced by any hashmap values, then free `ctx` */ {
 		SSL_CTX_free(ctx);
 		return false;
 	}
-	
+
 	return true;
 }

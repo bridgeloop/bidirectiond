@@ -1,7 +1,7 @@
 #include "internal.h"
-#include <string.h>
 #include <errno.h>
 #include <openssl/x509v3.h>
+#include <string.h>
 #include <unistd.h>
 
 __attribute__((warn_unused_result)) int bdd_poll(struct bdd_connections *connections, bdd_io_id io_id) {
@@ -98,11 +98,11 @@ void bdd_set_associated(struct bdd_connections *connections, void *data, void (*
 	if (connections->associated.destructor != NULL) {
 		connections->associated.destructor(connections->associated.data);
 	}
-	#ifndef NDEBUG
+#ifndef NDEBUG
 	if (data != NULL || destructor != NULL) {
 		assert(data != NULL && destructor != NULL);
 	}
-	#endif
+#endif
 	connections->associated.data = data;
 	connections->associated.destructor = destructor;
 	return;

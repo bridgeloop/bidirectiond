@@ -1,10 +1,10 @@
 #include "internal.h"
-#include <string.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <unistd.h>
-#include <signal.h>
 #include <openssl/err.h>
+#include <signal.h>
+#include <string.h>
+#include <unistd.h>
 
 int bdd_use_correct_ctx(SSL *client_ssl, int *_, struct bdd_accept_ctx *ctx) {
 	int r = SSL_TLSEXT_ERR_ALERT_FATAL;
@@ -25,7 +25,7 @@ int bdd_use_correct_ctx(SSL *client_ssl, int *_, struct bdd_accept_ctx *ctx) {
 			goto ucc__err;
 		}
 	}
-	
+
 	// i'm doing great, okay?
 	// thabks
 	uint8_t found_req = 0;
@@ -57,7 +57,7 @@ int bdd_use_correct_ctx(SSL *client_ssl, int *_, struct bdd_accept_ctx *ctx) {
 			}
 			if (name[idx] == '.') {
 				if (!fwc) {
-					ucc__place_wc:;
+				ucc__place_wc:;
 					name_len += 1;
 					name[--idx] = '*';
 					break;
@@ -67,14 +67,14 @@ int bdd_use_correct_ctx(SSL *client_ssl, int *_, struct bdd_accept_ctx *ctx) {
 		} while (true);
 	}
 
-	ucc__err:;
+ucc__err:;
 	BDD_DEBUG_LOG("r: %i\n", r);
 	return r;
 }
 
 void *bdd_accept(struct bdd_instance *instance) {
 	struct bdd_accept_ctx *ctx = &(instance->accept.accept_ctx);
-	bdd_accept_thread__poll:;
+bdd_accept_thread__poll:;
 	while (poll(instance->accept.pollfds, 2, -1) < 0) {
 		if (errno != EINTR) {
 			bdd_stop(instance);
@@ -89,16 +89,16 @@ void *bdd_accept(struct bdd_instance *instance) {
 	SSL *client_ssl = NULL;
 	instance->accept.accept_ctx.service_name_description = NULL;
 	int cl_socket = -1;
-	
-	#ifdef BIDIRECTIOND_ACCEPT_OCBCNS
+
+#ifdef BIDIRECTIOND_ACCEPT_OCBCNS
 	if ((connections = bdd_connections_obtain(instance)) == NULL) {
 		goto bdd_accept__err;
 	}
-	#endif
+#endif
 	if ((client_ssl = SSL_new(instance->accept.ssl_ctx)) == NULL) {
 		goto bdd_accept__err;
 	}
-	
+
 	// accept
 	BDD_DEBUG_LOG("accepting tcp connection\n");
 	struct sockaddr cl_sockaddr;
@@ -119,7 +119,7 @@ void *bdd_accept(struct bdd_instance *instance) {
 	if (!SSL_set_fd(client_ssl, cl_socket)) {
 		goto bdd_accept__err;
 	}
-	
+
 	if ((ctx->locked_name_descriptions = hashmap_lock(instance->name_descriptions)) == NULL) {
 		BDD_DEBUG_LOG("failed to obtain name_descriptions\n");
 		goto bdd_accept__err;
@@ -129,38 +129,38 @@ void *bdd_accept(struct bdd_instance *instance) {
 		BDD_DEBUG_LOG("rejected tls setup\n");
 		goto bdd_accept__err;
 	}
-	
+
 	switch (ctx->service_name_description->service_type) {
-		case (bdd_service_type_internal): {
-			#ifndef BIDIRECTIOND_ACCEPT_OCBCNS
-			if ((connections = bdd_connections_obtain(instance)) == NULL) {
-				goto bdd_accept__err;
-			}
-			#endif
-			switch (bdd_connections_init(connections, &(client_ssl), cl_sockaddr, ctx->service_name_description->service.internal.service, ctx->service_name_description->service.internal.service_info)) {
-				case (bdd_connections_init_failed): {
-					goto bdd_accept__err;
-				}
-				case (bdd_connections_init_success): {
-					bdd_connections_link(instance, &(connections));
-					break;
-				}
-				case (bdd_connections_init_failed_wants_deinit): {
-					bdd_connections_deinit(connections);
-					goto bdd_accept__err;
-				}
-			}
+	case (bdd_service_type_internal): {
+#ifndef BIDIRECTIOND_ACCEPT_OCBCNS
+		if ((connections = bdd_connections_obtain(instance)) == NULL) {
+			goto bdd_accept__err;
+		}
+#endif
+		switch (bdd_connections_init(connections, &(client_ssl), cl_sockaddr, ctx->service_name_description->service.internal.service, ctx->service_name_description->service.internal.service_info)) {
+		case (bdd_connections_init_failed): {
+			goto bdd_accept__err;
+		}
+		case (bdd_connections_init_success): {
+			bdd_connections_link(instance, &(connections));
 			break;
 		}
-		default: {
-			assert(false);
+		case (bdd_connections_init_failed_wants_deinit): {
+			bdd_connections_deinit(connections);
+			goto bdd_accept__err;
 		}
+		}
+		break;
 	}
-	
+	default: {
+		assert(false);
+	}
+	}
+
 	locked_hashmap_unlock(&(ctx->locked_name_descriptions));
 	goto bdd_accept_thread__poll;
 
-	bdd_accept__err:;
+bdd_accept__err:;
 	BDD_DEBUG_LOG("failed to accept connection\n");
 
 	if (ctx->locked_name_descriptions != NULL) {

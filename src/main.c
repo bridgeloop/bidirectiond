@@ -1,21 +1,21 @@
-#include <bddc/api.h>
-#include <sys/resource.h>
-#include <arpa/inet.h>
-#include "strtoint.h"
 #include "core_settings.h"
-#include "input_processor.h"
-#include "tls_put.h"
 #include "cp_pwd.h"
-#include <unistd.h>
-#include <pwd.h>
+#include "input_processor.h"
+#include "strtoint.h"
+#include "tls_put.h"
+#include <arpa/inet.h>
+#include <bddc/api.h>
 #include <fcntl.h>
+#include <openssl/engine.h>
 #include <openssl/err.h>
 #include <openssl/x509v3.h>
+#include <pwd.h>
 #include <signal.h>
+#include <sys/resource.h>
 #include <sys/signalfd.h>
-#include <openssl/engine.h>
 #include <sys/stat.h>
 #include <sys/un.h>
+#include <unistd.h>
 
 #ifndef BIDIRECTIOND_USERNAME
 #define BIDIRECTIOND_USERNAME "nobody"
@@ -39,17 +39,17 @@ struct bdd_settings settings = {
 };
 
 #define PASTE(x, y) x##y
-#define sto(w, t) \
-void PASTE(sto, w)(t *dest, char *str) { \
-	signed long long int v; \
-	if (!bdd_strtosll(str, strlen(str), &(v))) { \
-		return; \
-	} \
-	if (v == (t)v) { \
-		*dest = (t)v; \
-	} \
-	return; \
-}
+#define sto(w, t)                                    \
+	void PASTE(sto, w)(t * dest, char *str) {        \
+		signed long long int v;                      \
+		if (!bdd_strtosll(str, strlen(str), &(v))) { \
+			return;                                  \
+		}                                            \
+		if (v == (t)v) {                             \
+			*dest = (t)v;                            \
+		}                                            \
+		return;                                      \
+	}
 sto(i, int);
 sto(ui, unsigned int);
 sto(usi, unsigned short int);
@@ -70,21 +70,24 @@ void storlim(rlim_t *dest, char *str) {
 // main
 #ifndef HASHMAP_MAIN
 int main(int argc, char *argv[], char *env[]) {
-	puts("bidirectiond version "PROG_SEMVER);
+	puts("bidirectiond version " PROG_SEMVER);
 	// set up tls
 	SSL_library_init();
 	OpenSSL_add_all_algorithms();
 	SSL_load_error_strings();
 	ERR_load_BIO_strings();
 	ERR_load_crypto_strings();
-	
+
 	struct bdd_instance *bdd_instance = NULL;
 	int input_fd = -1;
-	struct sockaddr_un input_addr = { 0, .sun_family = AF_UNIX, };
+	struct sockaddr_un input_addr = {
+		0,
+		.sun_family = AF_UNIX,
+	};
 	int sig_fd = -1;
 
 	// name_descriptions
-	if ((settings.name_descriptions = hashmap_create((void (*)(void *))&(bdd_name_description_destroy))) == NULL) {
+	if ((settings.name_descriptions = hashmap_create((void (*)(void *)) & (bdd_name_description_destroy))) == NULL) {
 		fputs("failed to allocate settings.name_descriptions\n", stderr);
 		goto main__clean_up;
 	}
@@ -109,17 +112,17 @@ int main(int argc, char *argv[], char *env[]) {
 	setpwent();
 	for (struct passwd *pw = getpwent(); pw != NULL; pw = getpwent()) {
 		if (strcmp(pw->pw_name, BIDIRECTIOND_USERNAME) == 0) {
-			#ifdef BIDIRECTIOND_SU
+#ifdef BIDIRECTIOND_SU
 			nuid = pw->pw_uid;
 			ngid = pw->pw_gid;
-			#else
+#else
 			if (nuid == 0) {
 				nuid = pw->pw_uid;
 			}
 			if (ngid == 0) {
 				ngid = pw->pw_gid;
 			}
-			#endif
+#endif
 			break;
 		}
 	}
@@ -128,12 +131,13 @@ int main(int argc, char *argv[], char *env[]) {
 	struct locked_hashmap *lh = hashmap_lock(settings.name_descriptions);
 	size_t big_alloc_sz = 0;
 
-	#define EXPECT_ARGS(n) for (size_t idx = 1; idx <= n; ++idx) { \
+#define EXPECT_ARGS(n)                                \
+	for (size_t idx = 1; idx <= n; ++idx) {           \
 		if (arg[idx] == NULL || arg[idx][0] == '-') { \
-			goto main__arg_fuck; \
-		} \
+			goto main__arg_fuck;                      \
+		}                                             \
 	}
-	main__arg_iter:;
+main__arg_iter:;
 	while ((*arg) != NULL) {
 		if (strcmp((*arg), "--n-connection-threads") == 0 || strcmp((*arg), "-t") == 0) {
 			EXPECT_ARGS(1);
@@ -216,7 +220,7 @@ int main(int argc, char *argv[], char *env[]) {
 				fputs("seemingly invalid certificate file\n", stderr);
 				goto main__arg_creds_err;
 			}
-			main__arg_creds_err:;
+		main__arg_creds_err:;
 			if (ctx != NULL) {
 				SSL_CTX_free(ctx);
 			}
@@ -254,21 +258,22 @@ int main(int argc, char *argv[], char *env[]) {
 			arg += 2;
 		} else {
 			for (size_t idx = 0; idx < N_INTERNAL_SERVICES; ++idx) {
-				if (internal_services[idx].supported_arguments != NULL) for (size_t pidx = 0; internal_services[idx].supported_arguments[pidx]; ++pidx) {
-					if (strcmp((*arg), internal_services[idx].supported_arguments[pidx]) == 0) {
-						size_t n = 1;
-						while (arg[n] != NULL && (arg[n][0] != '-' || (arg[n][1] >= '0' && arg[n][1] <= '9'))) {
-							n += 1;
+				if (internal_services[idx].supported_arguments != NULL)
+					for (size_t pidx = 0; internal_services[idx].supported_arguments[pidx]; ++pidx) {
+						if (strcmp((*arg), internal_services[idx].supported_arguments[pidx]) == 0) {
+							size_t n = 1;
+							while (arg[n] != NULL && (arg[n][0] != '-' || (arg[n][1] >= '0' && arg[n][1] <= '9'))) {
+								n += 1;
+							}
+							if (!internal_services[idx].service_init(lh, &(internal_services[idx]), n, arg)) {
+								goto main__arg_fuck;
+							}
+							arg = &(arg[n]);
+							goto main__arg_iter;
 						}
-						if (!internal_services[idx].service_init(lh, &(internal_services[idx]), n, arg)) {
-							goto main__arg_fuck;
-						}
-						arg = &(arg[n]);
-						goto main__arg_iter;
 					}
-				}
 			}
-			main__arg_fuck:;
+		main__arg_fuck:;
 			puts(
 				"argument parsing failed\n"
 				"-t: set the amount of worker threads\n"
@@ -284,8 +289,7 @@ int main(int argc, char *argv[], char *env[]) {
 				"-c: load pem-encoded tls credentials (e.g. `-c cert.pem encrypted-key.pem name-of-password-environment-variable`)\n"
 				"--input: set the path for a udp unix socket, so that some bidirectiond settings can be modified without restarting\n"
 				"--n-epoll-oevents: epoll_wait maxevents\n"
-				"--big-alloc: reserve some ram"
-			);
+				"--big-alloc: reserve some ram");
 			for (size_t idx = 0; idx < N_INTERNAL_SERVICES; ++idx) {
 				if (internal_services[idx].arguments_help != NULL) {
 					fputs(internal_services[idx].arguments_help, stdout);
@@ -296,7 +300,7 @@ int main(int argc, char *argv[], char *env[]) {
 		}
 	}
 	locked_hashmap_unlock(&(lh));
-	
+
 	// potentially a setgid program
 	if (getgid() != 0 && getegid() == 0) {
 		setgid(0);
@@ -316,7 +320,9 @@ int main(int argc, char *argv[], char *env[]) {
 	union {
 		struct sockaddr_in inet4;
 		struct sockaddr_in6 inet6;
-	} sv_addr = { 0, };
+	} sv_addr = {
+		0,
+	};
 	size_t sv_addr_sz = 0;
 	if (disable_ipv6) {
 		settings.sv_socket = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
@@ -334,12 +340,11 @@ int main(int argc, char *argv[], char *env[]) {
 	// try to bind to port
 	int opt = 1;
 	setsockopt(settings.sv_socket, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &(opt), sizeof(opt));
-	if (bind(settings.sv_socket, (struct sockaddr *)&(sv_addr), sv_addr_sz) < 0 ||
-		listen(settings.sv_socket, backlog) < 0) {
+	if (bind(settings.sv_socket, (struct sockaddr *)&(sv_addr), sv_addr_sz) < 0 || listen(settings.sv_socket, backlog) < 0) {
 		fputs("failed to bind sv_socket! is the port already use? is the internet protocol enabled?\n", stderr);
 		goto main__clean_up;
 	}
-	
+
 	if (getgid() == 0) {
 		setgid(ngid);
 	}
@@ -355,7 +360,7 @@ int main(int argc, char *argv[], char *env[]) {
 		return 1;
 	}
 	//#endif
-	
+
 	if (input_addr.sun_path[0] != 0 && (input_fd = socket(AF_UNIX, SOCK_STREAM, 0)) >= 0) {
 		if (bind(input_fd, (struct sockaddr *)&(input_addr), sizeof(struct sockaddr_un)) != 0) {
 			fputs("failed to bind input socket\n", stderr);
@@ -366,7 +371,7 @@ int main(int argc, char *argv[], char *env[]) {
 			input_fd = -1;
 		}
 	}
-	
+
 	// signals
 	signal(SIGPIPE, SIG_IGN);
 	sigset_t sigset;
@@ -389,7 +394,7 @@ int main(int argc, char *argv[], char *env[]) {
 			.revents = 0,
 		},
 	};
-	
+
 	// serve
 	bdd_instance = bdd_go(settings);
 	if (bdd_instance == NULL) {
@@ -402,7 +407,7 @@ int main(int argc, char *argv[], char *env[]) {
 		}
 		free(big_alloc);
 	}
-	
+
 	struct signalfd_siginfo sig;
 	for (;;) {
 		while (poll((struct pollfd *)&(pollfds), input_fd < 0 ? 1 : 2, -1) < 0) {
@@ -415,12 +420,13 @@ int main(int argc, char *argv[], char *env[]) {
 				goto main__clean_up;
 			}
 			switch (sig.ssi_signo) {
-				case (SIGINT): case (SIGTERM): {
-					goto main__clean_up;
-				}
-				default: {
-					assert(false);
-				}
+			case (SIGINT):
+			case (SIGTERM): {
+				goto main__clean_up;
+			}
+			default: {
+				assert(false);
+			}
 			}
 		}
 		if (pollfds[1].revents & POLLIN) {
@@ -428,8 +434,8 @@ int main(int argc, char *argv[], char *env[]) {
 			input_processor(input_fd, (char *)&(buf), sizeof(buf));
 		}
 	}
-	
-	main__clean_up:;
+
+main__clean_up:;
 	if (bdd_instance != NULL) {
 		bdd_stop(bdd_instance);
 		bdd_wait(bdd_instance);

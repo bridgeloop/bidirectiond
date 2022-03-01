@@ -1,23 +1,25 @@
 #ifndef bidirectiond_core__api__h
 #define bidirectiond_core__api__h
 
-#include <stddef.h>
-#include <stdbool.h>
-#include <stdatomic.h>
+#include <assert.h>
+#include <hashmap/hashmap.h>
 #include <openssl/ssl.h>
+#include <poll.h>
 #include <pthread.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <sys/socket.h>
 #include <sys/time.h>
-#include <hashmap/hashmap.h>
-#include <poll.h>
-#include <stdint.h>
-#include <assert.h>
 
 #ifndef POLLRDHUP
 #define POLLRDHUP 0x400
 #endif
 
-enum bdd_name_description_service_type { bdd_name_description_service_type_none, bdd_name_description_service_type_internal, } __attribute__((packed));
+enum bdd_name_description_service_type { bdd_name_description_service_type_none,
+										 bdd_name_description_service_type_internal,
+} __attribute__((packed));
 typedef unsigned short int bdd_io_id;
 
 struct bdd_instance;
@@ -33,29 +35,29 @@ struct bdd_connections_associated {
 
 struct bdd_connections {
 	struct bdd_connections *next;
-	
+
 	bool working : 1, broken : 1;
 	pthread_mutex_t working_mutex;
-	
+
 	const struct bdd_internal_service *service;
-	
+
 	struct bdd_io *io;
-	
+
 	struct bdd_connections_associated associated;
 };
 
 struct bdd_internal_service {
 	char *name;
-	
+
 	bool (*serve)(struct bdd_connections *connections, void *buf, size_t buf_size);
-	
+
 	bool (*connections_init)(struct bdd_connections *connections, void *service_info, bdd_io_id client_id, struct sockaddr client_sockaddr);
-	
+
 	void (*service_info_destructor)(void *service_info);
 	bool (*service_init)(struct locked_hashmap *name_descriptions, struct bdd_internal_service *service, size_t n_arguments, char **arguments);
 	char **supported_arguments;
 	char *arguments_help;
-	
+
 	bdd_io_id n_max_io;
 };
 
@@ -72,14 +74,16 @@ struct bdd_settings {
 	int n_connections;
 	int n_epoll_oevents;
 	unsigned short int n_worker_threads;
-	
+
 	sigset_t sigmask;
 };
 
-enum bdd_service_type { bdd_service_type_none, bdd_service_type_internal, } __attribute__((packed));
+enum bdd_service_type { bdd_service_type_none,
+						bdd_service_type_internal,
+} __attribute__((packed));
 struct bdd_name_description {
 	SSL_CTX *ssl_ctx;
-	
+
 	enum bdd_service_type service_type;
 	union {
 		struct {

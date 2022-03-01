@@ -64,20 +64,16 @@ struct bdd_instance *bdd_instance_alloc(void) {
 }
 
 struct bdd_instance *bdd_go(struct bdd_settings settings) {
-	if (settings.sv_socket < 0 || settings.buf_sz == 0 || settings.n_connections < 0 || settings.n_epoll_oevents < 0 || settings.name_descriptions == NULL ||
-		(
-			(settings.n_connections == 0 || settings.n_worker_threads == 0 || settings.n_epoll_oevents == 0) &&
-			(settings.n_connections != 0 || settings.n_worker_threads != 0 || settings.n_epoll_oevents != 0)
-		)) {
+	if (settings.sv_socket < 0 || settings.buf_sz == 0 || settings.n_connections < 0 || settings.n_epoll_oevents < 0 || settings.name_descriptions == NULL || ((settings.n_connections == 0 || settings.n_worker_threads == 0 || settings.n_epoll_oevents == 0) && (settings.n_connections != 0 || settings.n_worker_threads != 0 || settings.n_epoll_oevents != 0))) {
 		return NULL;
 	}
 	bool uses_internal_services = settings.n_connections != 0;
-	
+
 	struct bdd_instance *instance = bdd_instance_alloc();
 	if (instance == NULL) {
 		return NULL;
 	}
-	
+
 	if (pthread_mutex_init(&(instance->n_running_threads_mutex), NULL) != 0) {
 		free(instance);
 		return NULL;
@@ -87,10 +83,11 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		free(instance);
 		return NULL;
 	}
-	
+
 	struct bdd_instance *ret = (struct bdd_instance *)instance;
 	{
-		while (atomic_flag_test_and_set(&(BDD_GLOBAL_MUTEX)));
+		while (atomic_flag_test_and_set(&(BDD_GLOBAL_MUTEX)))
+			;
 		if (BDD_GLOBAL_RC == 0) {
 			if ((BDD_GLOBAL_CL_SSL_CTX = SSL_CTX_new(TLS_client_method())) == NULL) {
 				atomic_flag_clear(&(BDD_GLOBAL_MUTEX));
@@ -104,7 +101,7 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		}
 		atomic_flag_clear(&(BDD_GLOBAL_MUTEX));
 	}
-	
+
 	// sigmask
 	instance->sigmask = settings.sigmask;
 	if (uses_internal_services) {
@@ -128,9 +125,8 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		// connections
 		instance->connections.n_connections = settings.n_connections;
 		if ((instance->connections.connections = malloc(
-				(settings.n_connections * sizeof(struct bdd_connections)) +
-				(settings.n_connections * sizeof(int))
-			)) == NULL) {
+				 (settings.n_connections * sizeof(struct bdd_connections)) + (settings.n_connections * sizeof(int))))
+			== NULL) {
 			goto bdd_go__err;
 		}
 		// available stack
@@ -249,10 +245,10 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		}
 		pthread_mutex_unlock(&(instance->n_running_threads_mutex));
 	}
-	
+
 	return ret;
-	
-	bdd_go__err:;
+
+bdd_go__err:;
 	bdd_stop(ret);
 	bdd_wait(ret);
 	bdd_destroy(ret);
@@ -292,64 +288,65 @@ void bdd_wait(struct bdd_instance *instance) {
 void bdd_destroy(struct bdd_instance *instance) {
 	pthread_mutex_destroy(&(instance->n_running_threads_mutex));
 	pthread_cond_destroy(&(instance->n_running_threads_cond));
-	
+
 	if (instance->epoll_fd >= 0) {
 		close(instance->epoll_fd);
 	}
 	if (instance->epoll_oevents != NULL) {
-		free(instance->epoll_oevents);	
+		free(instance->epoll_oevents);
 	}
-	
+
 	pthread_mutex_destroy(&(instance->connections.available_mutex));
 	pthread_cond_destroy(&(instance->connections.available_cond));
-	
+
 	for (int idx = 0; idx < instance->connections.n_connections; ++idx) {
 		bdd_connections_deinit(&(instance->connections.connections[idx]));
 		pthread_mutex_destroy(&(instance->connections.connections[idx].working_mutex));
 	}
-	
+
 	if (instance->connections.connections != NULL) {
 		free(instance->connections.connections);
 	}
-	
+
 	pthread_mutex_destroy(&(instance->linked_connections.mutex));
-	
+
 	if (instance->accept.eventfd >= 0) {
 		close(instance->accept.eventfd);
 	}
 	if (instance->accept.ssl_ctx != NULL) {
 		SSL_CTX_free(instance->accept.ssl_ctx);
 	}
-	
+
 	if (instance->serve_eventfd >= 0) {
 		close(instance->serve_eventfd);
 	}
-	
+
 	pthread_mutex_destroy(&(instance->workers.available_stack.mutex));
 	pthread_cond_destroy(&(instance->workers.available_stack.cond));
 	if (instance->workers.available_stack.ids != NULL) {
 		free(instance->workers.available_stack.ids);
 	}
-	
+
 	for (unsigned short int idx = 0; idx < instance->workers.n_workers; ++idx) {
 		pthread_mutex_destroy(&(instance->workers.info[idx].work_mutex));
 		pthread_cond_destroy(&(instance->workers.info[idx].work_cond));
 	}
-	
+
 	if (instance->workers.buf != NULL) {
 		free(instance->workers.buf);
 	}
 	if (instance->workers.info != NULL) {
 		free(instance->workers.info);
 	}
-	
+
 	free(instance);
 
-	while (atomic_flag_test_and_set(&(BDD_GLOBAL_MUTEX)));
+	while (atomic_flag_test_and_set(&(BDD_GLOBAL_MUTEX)))
+		;
 	if (--BDD_GLOBAL_RC == 0) {
 		SSL_CTX_free(BDD_GLOBAL_CL_SSL_CTX);
 	}
 	atomic_flag_clear(&(BDD_GLOBAL_MUTEX));
-	
+
 	return;
 }

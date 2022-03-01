@@ -43,29 +43,29 @@ struct bdd_accept_ctx {
 
 struct bdd_instance {
 	sigset_t sigmask;
-	
+
 	atomic_bool exiting;
-	
+
 	int n_running_threads;
 	pthread_mutex_t n_running_threads_mutex;
 	pthread_cond_t n_running_threads_cond;
-	
+
 	int epoll_fd;
 	int n_epoll_oevents;
 	struct epoll_event *epoll_oevents;
-	
+
 	void *name_descriptions;
-	
+
 	struct timeval client_timeout;
-	
+
 	int sv_socket;
-	
+
 	struct {
 		int n_connections;
-		
+
 		struct bdd_connections *connections;
 		int connections_idx;
-		
+
 		// stack
 		int *available;
 		int available_idx;
@@ -76,16 +76,16 @@ struct bdd_instance {
 		pthread_mutex_t mutex;
 		struct bdd_connections *head;
 	} linked_connections;
-	
+
 	struct {
 		int eventfd;
 		struct pollfd pollfds[2];
 		SSL_CTX *ssl_ctx;
 		struct bdd_accept_ctx accept_ctx;
 	} accept;
-	
+
 	int serve_eventfd;
-	
+
 	struct bdd_workers workers;
 };
 
@@ -107,10 +107,13 @@ int bdd_vdl_pthread_mutex_trylock(void *_, char *name, int ln);
 #define pthread_cond_wait(_, __) bdd_vdl_pthread_cond_wait(_, __, #__, __LINE__)
 #define pthread_mutex_trylock(x) bdd_vdl_pthread_mutex_trylock(x, #x, __LINE__)
 #endif
-#define BDD_DEBUG_LOG(string, args...) (printf("[DEBUG (%p)] "string, (void *)pthread_self(), ##args), fflush(stdout))
+#define BDD_DEBUG_LOG(string, args...) (printf("[DEBUG (%p)] " string, (void *)pthread_self(), ##args), fflush(stdout))
 #endif
 
-enum bdd_connections_init_status { bdd_connections_init_success, bdd_connections_init_failed_wants_deinit, bdd_connections_init_failed, } __attribute__((packed));
+enum bdd_connections_init_status { bdd_connections_init_success,
+								   bdd_connections_init_failed_wants_deinit,
+								   bdd_connections_init_failed,
+} __attribute__((packed));
 enum bdd_connections_init_status bdd_connections_init(struct bdd_connections *connections, SSL **client_ssl, struct sockaddr client_sockaddr, const struct bdd_internal_service *service, void *service_info);
 struct bdd_connections *bdd_connections_obtain(struct bdd_instance *instance);
 void bdd_connections_release(struct bdd_instance *instance, struct bdd_connections **connections);
