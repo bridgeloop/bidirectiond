@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-semver = "0.1.2"
+semver = "0.1.3"
 import sys, json, os, subprocess
 if sys.argv[0] != "./build.py":
     print("shit")
