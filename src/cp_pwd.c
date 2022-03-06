@@ -14,7 +14,7 @@ int bdd_cp_pwd(char *dest, int dest_sz, int rwflag, void *_ctx) {
 	if (dest_sz <= 0 || src_len <= 0 || src_len >= dest_sz) {
 		return 0;
 	}
-	memcpy(dest, src, dest_sz);
+	memcpy(dest, src, src_len);
 	ctx->success = true;
 	return src_len;
 }
