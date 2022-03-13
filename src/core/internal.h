@@ -10,7 +10,7 @@ extern SSL_CTX *BDD_GLOBAL_CL_SSL_CTX;
 void bdd_mutex_preinit(pthread_mutex_t *dest);
 void bdd_cond_preinit(pthread_cond_t *dest);
 
-// my justification for the following shit is: my ram usage is already kinda pushing it, so i'd like to save some heap space in exchange for a few extra instructions
+// my justification for the following shit is: my memory usage is already kinda pushing it, so i'd like to save some heap space in exchange for a few extra instructions
 #define bdd_connections_n_max_io(c) (c->service->n_max_io)
 #define bdd_connections_id(instance, c) (((char *)c - (char *)(instance->connections.connections)) / sizeof(struct bdd_connections))
 
