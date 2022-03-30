@@ -20,7 +20,7 @@ AlwaysBreakBeforeMultilineStrings: true
 BinPackArguments: false
 BinPackParameters: false
 BitFieldColonSpacing: After
-BreakBeforeBinaryOperators: None
+BreakBeforeBinaryOperators: All
 BreakBeforeBraces: Custom
 BraceWrapping:
  AfterCaseLabel: false
@@ -62,7 +62,7 @@ SpaceBeforeSquareBrackets: false
 SpaceInEmptyBlock: false
 SpaceInEmptyParentheses: false
 SpacesInCStyleCastParentheses: false
-SpacesInContainerLiterals: true
+SpacesInContainerLiterals: false
 SpacesInParentheses: false
 SpacesInSquareBrackets: false
 TabWidth: 8

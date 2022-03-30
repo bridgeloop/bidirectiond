@@ -35,26 +35,25 @@ bdd_serve__find_connections:;
 		int r = read(instance->serve_eventfd, &(g), 8);
 		assert(r == 8 || r < 0);
 	}
-	for (struct bdd_connections **connections = &(instance->linked_connections.head); (*connections) != NULL;) {
-		struct bdd_connections *next = (*connections)->next;
-		(*connections)->working = false;
+	for (struct bdd_connections **curr = &(instance->linked_connections.head), *connections; (connections = (*curr)) != NULL;) {
+		struct bdd_connections **next = &(connections->next);
+		connections->working = false;
 		bool broken = true;
-		if (!(*connections)->broken) {
-			for (bdd_io_id idx = 0; idx < bdd_connections_n_max_io((*connections)); ++idx) {
-				int fd = (*connections)->io[idx].fd;
+		if (!connections->broken) {
+			for (bdd_io_id idx = 0; idx < bdd_connections_n_max_io(connections); ++idx) {
+				int fd = connections->io[idx].fd;
 				if (fd < 0) {
 					continue;
 				}
 				struct epoll_event event = {
 				    .events = EPOLLIN,
-				    .data =
-					{
-					    .ptr = (*connections),
+				    .data = {
+					    .ptr = connections,
 					},
 				};
 				if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
 					for (bdd_io_id idx2 = 0; idx2 < idx; ++idx2) {
-						fd = (*connections)->io[idx2].fd;
+						fd = connections->io[idx2].fd;
 						if (fd >= 0) {
 							int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
 							assert(r == 0);
@@ -67,10 +66,11 @@ bdd_serve__find_connections:;
 			}
 		}
 		if (broken) {
-			bdd_connections_deinit((*connections));
-			bdd_connections_release(instance, connections);
+			bdd_connections_deinit(connections);
+			bdd_connections_release(instance, curr);
 		}
-		(*connections) = next;
+		(*curr) = NULL;
+		curr = next;
 	}
 	pthread_mutex_unlock(&(instance->linked_connections.mutex));
 
@@ -143,7 +143,7 @@ bdd_serve__find_connections:;
 			if (worker->connections == NULL) {
 				worker->connections_appender = &(worker->connections);
 			}
-			connections->next = NULL;
+			assert(connections->next == NULL);
 			(*(worker->connections_appender)) = connections;
 			worker->connections_appender = &(connections->next);
 			pthread_cond_signal(&(worker->work_cond));

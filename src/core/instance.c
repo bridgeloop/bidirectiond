@@ -65,8 +65,8 @@ struct bdd_instance *bdd_instance_alloc(void) {
 }
 
 struct bdd_instance *bdd_go(struct bdd_settings settings) {
-	if (settings.sv_socket < 0 || settings.buf_sz == 0 || settings.n_connections < 0 || settings.n_epoll_oevents < 0 || settings.name_descriptions == NULL ||
-	    ((settings.n_connections == 0 || settings.n_worker_threads == 0 || settings.n_epoll_oevents == 0) && (settings.n_connections != 0 || settings.n_worker_threads != 0 || settings.n_epoll_oevents != 0)))
+	if (settings.sv_socket < 0 || settings.buf_sz == 0 || settings.n_connections < 0 || settings.n_epoll_oevents < 0 || settings.name_descriptions == NULL
+	    || ((settings.n_connections == 0 || settings.n_worker_threads == 0 || settings.n_epoll_oevents == 0) && (settings.n_connections != 0 || settings.n_worker_threads != 0 || settings.n_epoll_oevents != 0)))
 	{
 		return NULL;
 	}
@@ -89,8 +89,7 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 
 	struct bdd_instance *ret = (struct bdd_instance *)instance;
 	{
-		while (atomic_flag_test_and_set(&(BDD_GLOBAL_MUTEX)))
-			;
+		while (atomic_flag_test_and_set(&(BDD_GLOBAL_MUTEX))) continue;
 		if (BDD_GLOBAL_RC == 0) {
 			if ((BDD_GLOBAL_CL_SSL_CTX = SSL_CTX_new(TLS_client_method())) == NULL) {
 				atomic_flag_clear(&(BDD_GLOBAL_MUTEX));
@@ -343,8 +342,7 @@ void bdd_destroy(struct bdd_instance *instance) {
 
 	free(instance);
 
-	while (atomic_flag_test_and_set(&(BDD_GLOBAL_MUTEX)))
-		;
+	while (atomic_flag_test_and_set(&(BDD_GLOBAL_MUTEX))) continue;
 	if (--BDD_GLOBAL_RC == 0) {
 		SSL_CTX_free(BDD_GLOBAL_CL_SSL_CTX);
 	}
