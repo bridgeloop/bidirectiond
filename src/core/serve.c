@@ -44,8 +44,8 @@ bdd_serve__find_connections:;
 					continue;
 				}
 				struct epoll_event event = {
-				    .events = EPOLLIN,
-				    .data = {
+					.events = EPOLLIN,
+					.data = {
 						.ptr = connections,
 					},
 				};
@@ -116,9 +116,9 @@ bdd_serve__find_connections:;
 			bdd_connections_release(instance, &(connections));
 			continue;
 		}
-		
+
 		BDD_DEBUG_LOG("found working connections struct\n");
-		
+
 		struct bdd_worker *worker;
 		if (workers->available_stack.ids == NULL) {
 			worker = &(workers->info[next_worker_id]);
@@ -137,9 +137,9 @@ bdd_serve__find_connections:;
 			worker = &(workers->info[workers->available_stack.ids[(workers->available_stack.idx)++]]);
 			pthread_mutex_unlock(&(workers->available_stack.mutex));
 		}
-		
+
 		BDD_DEBUG_LOG("worker thread %i chosen!\n", (int)worker->id);
-		
+
 		pthread_mutex_lock(&(worker->work_mutex));
 		if (worker->connections == NULL) {
 			worker->connections_appender = &(worker->connections);
