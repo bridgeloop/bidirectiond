@@ -50,14 +50,14 @@ void input_processor(int sfd, char *br_buf, int br_buf_sz) {
 		char *str;
 		uint8_t str_sz;
 	} match_list[] = {
-	    {
-		.str = "TLS_PEM_LOAD",
-		.str_sz = 12,
-	    },
-	    {
-		.str = "PING",
-		.str_sz = 4,
-	    },
+		{
+			.str = "TLS_PEM_LOAD",
+			.str_sz = 12,
+		},
+		{
+			.str = "PING",
+			.str_sz = 4,
+		},
 	};
 
 input_processor__process:;
@@ -154,8 +154,8 @@ input_processor__matched:;
 			br_ctx.byte = 1;
 		}
 		struct bdd_cp_ctx cp_ctx = {
-		    .success = false,
-		    .password = NULL,
+			.success = false,
+			.password = NULL,
 		};
 		if (br_ctx.byte != 1) {
 			char env_variable_name[0x100];

@@ -19,12 +19,10 @@ bdd_serve__find_connections:;
 		n_events = epoll_wait(instance->epoll_fd, instance->epoll_oevents, instance->n_epoll_oevents, -1);
 	} while (n_events < 0 && errno == EINTR);
 	if (unlikely(n_events < 0)) {
-		fprintf(
-		    stderr,
-		    "bidirectiond epoll error: %i - try increasing your "
-		    "rlimits for open files\n",
-		    errno
-		);
+		fprintf(stderr,
+			"bidirectiond epoll error: %i - try increasing your "
+			"rlimits for open files\n",
+			errno);
 		bdd_stop(instance);
 		bdd_thread_exit(instance);
 	}
@@ -126,8 +124,8 @@ bdd_serve__find_connections:;
 				pthread_mutex_lock(&(workers->available_stack.mutex));
 				if (workers->available_stack.idx == workers->n_workers) {
 					BDD_DEBUG_LOG(
-					    "no available worker "
-					    "threads; waiting...\n"
+						"no available worker "
+						"threads; waiting...\n"
 					);
 					do {
 						pthread_cond_wait(&(workers->available_stack.cond), &(workers->available_stack.mutex));

@@ -10,9 +10,9 @@ __attribute__((warn_unused_result)) int bdd_poll(struct bdd_connections *connect
 	struct bdd_io *io = &(connections->io[io_id]);
 	assert(io->fd != -1);
 	struct pollfd pollfd = {
-	    .fd = io->fd,
-	    .events = POLLIN | POLLOUT | POLLRDHUP,
-	    .revents = 0,
+		.fd = io->fd,
+		.events = POLLIN | POLLOUT | POLLRDHUP,
+		.revents = 0,
 	};
 	poll(&(pollfd), 1, 0);
 	if (io->ssl != NULL && SSL_has_pending(io->ssl)) {

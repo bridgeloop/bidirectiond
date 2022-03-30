@@ -4,14 +4,14 @@
 
 void bdd_signal(struct bdd_instance *instance) {
 	char buf[8] = {
-	    ~0,
-	    0,
-	    0,
-	    0,
-	    0,
-	    0,
-	    0,
-	    ~0,
+		~0,
+		0,
+		0,
+		0,
+		0,
+		0,
+		0,
+		~0,
 	};
 	int r = write(instance->serve_eventfd, (void *)buf, 8);
 	assert(r == 8 || r < 0);
@@ -20,14 +20,14 @@ void bdd_signal(struct bdd_instance *instance) {
 
 void bdd_stop_accept(struct bdd_instance *instance) {
 	char buf[8] = {
-	    ~0,
-	    0,
-	    0,
-	    0,
-	    0,
-	    0,
-	    0,
-	    ~0,
+		~0,
+		0,
+		0,
+		0,
+		0,
+		0,
+		0,
+		~0,
 	};
 	int r = write(instance->accept.eventfd, (void *)buf, 8);
 	assert(r == 8 || r < 0);

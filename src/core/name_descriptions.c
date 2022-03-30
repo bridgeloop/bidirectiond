@@ -13,8 +13,8 @@ struct bdd_name_description *bdd_name_description_alloc(void) {
 void bdd_name_description_clean_ssl_ctx(struct bdd_name_description *name_description) {
 	if (name_description->ssl_ctx != NULL) {
 		SSL_CTX_free(name_description->ssl_ctx); // misleading function name; it actually
-		    // decs the ref count and frees the ssl_ctx
-		    // if the rc hits 0
+			// decs the ref count and frees the ssl_ctx
+			// if the rc hits 0
 		name_description->ssl_ctx = NULL;
 	}
 	return;
