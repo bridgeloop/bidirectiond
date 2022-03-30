@@ -46,7 +46,7 @@ bdd_serve__find_connections:;
 				struct epoll_event event = {
 				    .events = EPOLLIN,
 				    .data = {
-					    .ptr = connections,
+						.ptr = connections,
 					},
 				};
 				if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
@@ -66,8 +66,9 @@ bdd_serve__find_connections:;
 		if (broken) {
 			bdd_connections_deinit(connections);
 			bdd_connections_release(instance, curr);
+		} else {
+			(*curr) = NULL;
 		}
-		(*curr) = NULL;
 		curr = next;
 	}
 	pthread_mutex_unlock(&(instance->linked_connections.mutex));
@@ -113,40 +114,41 @@ bdd_serve__find_connections:;
 			BDD_DEBUG_LOG("found broken connections struct\n");
 			bdd_connections_deinit(connections);
 			bdd_connections_release(instance, &(connections));
-		} else {
-			BDD_DEBUG_LOG("found working connections struct\n");
-
-			struct bdd_worker *worker;
-			if (workers->available_stack.ids == NULL) {
-				worker = &(workers->info[next_worker_id]);
-				next_worker_id = (next_worker_id + 1) % workers->n_workers;
-			} else {
-				pthread_mutex_lock(&(workers->available_stack.mutex));
-				if (workers->available_stack.idx == workers->n_workers) {
-					BDD_DEBUG_LOG(
-						"no available worker "
-						"threads; waiting...\n"
-					);
-					do {
-						pthread_cond_wait(&(workers->available_stack.cond), &(workers->available_stack.mutex));
-					} while (workers->available_stack.idx == workers->n_workers);
-				}
-				worker = &(workers->info[workers->available_stack.ids[(workers->available_stack.idx)++]]);
-				pthread_mutex_unlock(&(workers->available_stack.mutex));
-			}
-
-			BDD_DEBUG_LOG("worker thread %i chosen!\n", (int)worker->id);
-
-			pthread_mutex_lock(&(worker->work_mutex));
-			if (worker->connections == NULL) {
-				worker->connections_appender = &(worker->connections);
-			}
-			assert(connections->next == NULL);
-			(*(worker->connections_appender)) = connections;
-			worker->connections_appender = &(connections->next);
-			pthread_cond_signal(&(worker->work_cond));
-			pthread_mutex_unlock(&(worker->work_mutex));
+			continue;
 		}
+		
+		BDD_DEBUG_LOG("found working connections struct\n");
+		
+		struct bdd_worker *worker;
+		if (workers->available_stack.ids == NULL) {
+			worker = &(workers->info[next_worker_id]);
+			next_worker_id = (next_worker_id + 1) % workers->n_workers;
+		} else {
+			pthread_mutex_lock(&(workers->available_stack.mutex));
+			if (workers->available_stack.idx == workers->n_workers) {
+				BDD_DEBUG_LOG(
+					"no available worker "
+					"threads; waiting...\n"
+				);
+				do {
+					pthread_cond_wait(&(workers->available_stack.cond), &(workers->available_stack.mutex));
+				} while (workers->available_stack.idx == workers->n_workers);
+			}
+			worker = &(workers->info[workers->available_stack.ids[(workers->available_stack.idx)++]]);
+			pthread_mutex_unlock(&(workers->available_stack.mutex));
+		}
+		
+		BDD_DEBUG_LOG("worker thread %i chosen!\n", (int)worker->id);
+		
+		pthread_mutex_lock(&(worker->work_mutex));
+		if (worker->connections == NULL) {
+			worker->connections_appender = &(worker->connections);
+		}
+		assert(connections->next == NULL);
+		(*(worker->connections_appender)) = connections;
+		worker->connections_appender = &(connections->next);
+		pthread_cond_signal(&(worker->work_cond));
+		pthread_mutex_unlock(&(worker->work_mutex));
 	}
 
 	goto bdd_serve__find_connections;
