@@ -17,8 +17,9 @@
 #define POLLRDHUP 0x400
 #endif
 
-enum bdd_name_description_service_type { bdd_name_description_service_type_none,
-										 bdd_name_description_service_type_internal,
+enum bdd_name_description_service_type {
+	bdd_name_description_service_type_none,
+	bdd_name_description_service_type_internal,
 } __attribute__((packed));
 typedef unsigned short int bdd_io_id;
 
@@ -36,7 +37,7 @@ struct bdd_connections_associated {
 struct bdd_connections {
 	struct bdd_connections *next;
 
-	bool working : 1, broken : 1;
+	bool working: 1, broken: 1;
 	pthread_mutex_t working_mutex;
 
 	const struct bdd_internal_service *service;
@@ -69,7 +70,7 @@ struct bdd_settings {
 	uint32_t client_timeout;
 
 	uint32_t buf_sz;
-	bool use_stack_buf : 1, use_work_queues : 1;
+	bool use_stack_buf: 1, use_work_queues: 1;
 
 	int n_connections;
 	int n_epoll_oevents;
@@ -78,8 +79,9 @@ struct bdd_settings {
 	sigset_t sigmask;
 };
 
-enum bdd_service_type { bdd_service_type_none,
-						bdd_service_type_internal,
+enum bdd_service_type {
+	bdd_service_type_none,
+	bdd_service_type_internal,
 } __attribute__((packed));
 struct bdd_name_description {
 	SSL_CTX *ssl_ctx;

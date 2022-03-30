@@ -1,7 +1,9 @@
 #include "input_processor.h"
+
 #include "core_settings.h"
 #include "cp_pwd.h"
 #include "tls_put.h"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <openssl/ssl.h>
@@ -15,7 +17,9 @@ struct buffered_read_ctx {
 	char byte;
 };
 #define BUFFERED_READ_CTX_INITALISER \
-	{ .idx = 0, .len = 0, .byte = 0, }
+	{ \
+		.idx = 0, .len = 0, .byte = 0, \
+	}
 static bool buffered_read(int fd, char *buf, int buf_sz, struct buffered_read_ctx *ctx) {
 	if (buf_sz < 0) {
 		return false;
@@ -46,14 +50,14 @@ void input_processor(int sfd, char *br_buf, int br_buf_sz) {
 		char *str;
 		uint8_t str_sz;
 	} match_list[] = {
-		{
-			.str = "TLS_PEM_LOAD",
-			.str_sz = 12,
-		},
-		{
-			.str = "PING",
-			.str_sz = 4,
-		},
+	    {
+		.str = "TLS_PEM_LOAD",
+		.str_sz = 12,
+	    },
+	    {
+		.str = "PING",
+		.str_sz = 4,
+	    },
 	};
 
 input_processor__process:;
@@ -150,8 +154,8 @@ input_processor__matched:;
 			br_ctx.byte = 1;
 		}
 		struct bdd_cp_ctx cp_ctx = {
-			.success = false,
-			.password = NULL,
+		    .success = false,
+		    .password = NULL,
 		};
 		if (br_ctx.byte != 1) {
 			char env_variable_name[0x100];
@@ -190,7 +194,7 @@ input_processor__matched:;
 			e |= 0b10;
 		}
 		locked_hashmap_unlock(&(lh));
-	input_processor__tls_pem_load_err:;
+input_processor__tls_pem_load_err:;
 		if (ctx != NULL) {
 			SSL_CTX_free(ctx);
 		}

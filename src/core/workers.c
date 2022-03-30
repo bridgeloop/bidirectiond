@@ -1,4 +1,5 @@
 #include "internal.h"
+
 #include <signal.h>
 
 void *bdd_worker(struct bdd_worker *worker) {

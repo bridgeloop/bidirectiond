@@ -1,5 +1,7 @@
 #include "tls_put.h"
+
 #include "core_settings.h"
+
 #include <openssl/x509v3.h>
 #include <string.h>
 
@@ -61,7 +63,9 @@ bool tls_put(struct locked_hashmap *ns, SSL_CTX **ctx_ref) {
 		}
 	}
 
-	if (!should_up_rc) /* if `ctx` is not referenced by any hashmap values, then free `ctx` */ {
+	if (!should_up_rc) /* if `ctx` is not referenced by any hashmap values,
+			      then free `ctx` */
+	{
 		SSL_CTX_free(ctx);
 		return false;
 	}

@@ -1,4 +1,5 @@
 #include "internal.h"
+
 #include <errno.h>
 #include <openssl/x509v3.h>
 #include <string.h>
@@ -9,9 +10,9 @@ __attribute__((warn_unused_result)) int bdd_poll(struct bdd_connections *connect
 	struct bdd_io *io = &(connections->io[io_id]);
 	assert(io->fd != -1);
 	struct pollfd pollfd = {
-		.fd = io->fd,
-		.events = POLLIN | POLLOUT | POLLRDHUP,
-		.revents = 0,
+	    .fd = io->fd,
+	    .events = POLLIN | POLLOUT | POLLRDHUP,
+	    .revents = 0,
 	};
 	poll(&(pollfd), 1, 0);
 	if (io->ssl != NULL && SSL_has_pending(io->ssl)) {
@@ -123,8 +124,9 @@ bool bdd_create_io(struct bdd_connections *connections, bdd_io_id *io_id, int *f
 	}
 	SSL *ssl = NULL;
 	if (ssl_name != NULL) {
-		// i think it's not finna write to the ctx, so a global mutex lock is not required here
-		// also, BDD_GLOBAL_CL_SSL_CTX is guaranteed to be valid here
+		// i think it's not finna write to the ctx, so a global mutex
+		// lock is not required here also, BDD_GLOBAL_CL_SSL_CTX is
+		// guaranteed to be valid here
 		if ((ssl = SSL_new(BDD_GLOBAL_CL_SSL_CTX)) == NULL) {
 			return false;
 		}

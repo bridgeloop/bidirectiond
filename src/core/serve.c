@@ -1,4 +1,5 @@
 #include "internal.h"
+
 #include <errno.h>
 #include <signal.h>
 #include <sys/epoll.h>
@@ -18,7 +19,12 @@ bdd_serve__find_connections:;
 		n_events = epoll_wait(instance->epoll_fd, instance->epoll_oevents, instance->n_epoll_oevents, -1);
 	} while (n_events < 0 && errno == EINTR);
 	if (unlikely(n_events < 0)) {
-		fprintf(stderr, "bidirectiond epoll error: %i - try increasing your rlimits for open files\n", errno);
+		fprintf(
+		    stderr,
+		    "bidirectiond epoll error: %i - try increasing your "
+		    "rlimits for open files\n",
+		    errno
+		);
 		bdd_stop(instance);
 		bdd_thread_exit(instance);
 	}
@@ -33,16 +39,17 @@ bdd_serve__find_connections:;
 		struct bdd_connections *next = (*connections)->next;
 		(*connections)->working = false;
 		bool broken = true;
-		if (!(*connections)->broken)
+		if (!(*connections)->broken) {
 			for (bdd_io_id idx = 0; idx < bdd_connections_n_max_io((*connections)); ++idx) {
 				int fd = (*connections)->io[idx].fd;
 				if (fd < 0) {
 					continue;
 				}
 				struct epoll_event event = {
-					.events = EPOLLIN,
-					.data = {
-						.ptr = (*connections),
+				    .events = EPOLLIN,
+				    .data =
+					{
+					    .ptr = (*connections),
 					},
 				};
 				if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
@@ -58,6 +65,7 @@ bdd_serve__find_connections:;
 				}
 				broken = false;
 			}
+		}
 		if (broken) {
 			bdd_connections_deinit((*connections));
 			bdd_connections_release(instance, connections);
@@ -117,7 +125,10 @@ bdd_serve__find_connections:;
 			} else {
 				pthread_mutex_lock(&(workers->available_stack.mutex));
 				if (workers->available_stack.idx == workers->n_workers) {
-					BDD_DEBUG_LOG("no available worker threads; waiting...\n");
+					BDD_DEBUG_LOG(
+					    "no available worker "
+					    "threads; waiting...\n"
+					);
 					do {
 						pthread_cond_wait(&(workers->available_stack.cond), &(workers->available_stack.mutex));
 					} while (workers->available_stack.idx == workers->n_workers);

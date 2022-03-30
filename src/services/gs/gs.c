@@ -80,9 +80,9 @@ void general_service__service_info_destructor(void *hint) {
 static bool handle_s(struct locked_hashmap *name_descriptions, struct bdd_internal_service *service, char *scope, char *addr, char *port, bool use_tls) {
 	struct general_service__info *info = malloc(sizeof(struct general_service__info));
 	struct addrinfo hints = {
-		0,
-		.ai_family = AF_UNSPEC,
-		.ai_socktype = SOCK_STREAM,
+	    0,
+	    .ai_family = AF_UNSPEC,
+	    .ai_socktype = SOCK_STREAM,
 	};
 	struct addrinfo *res = NULL;
 	if (info == NULL) {

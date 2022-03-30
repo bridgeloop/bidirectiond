@@ -1,4 +1,5 @@
 #include "internal.h"
+
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <unistd.h>
@@ -64,7 +65,9 @@ struct bdd_instance *bdd_instance_alloc(void) {
 }
 
 struct bdd_instance *bdd_go(struct bdd_settings settings) {
-	if (settings.sv_socket < 0 || settings.buf_sz == 0 || settings.n_connections < 0 || settings.n_epoll_oevents < 0 || settings.name_descriptions == NULL || ((settings.n_connections == 0 || settings.n_worker_threads == 0 || settings.n_epoll_oevents == 0) && (settings.n_connections != 0 || settings.n_worker_threads != 0 || settings.n_epoll_oevents != 0))) {
+	if (settings.sv_socket < 0 || settings.buf_sz == 0 || settings.n_connections < 0 || settings.n_epoll_oevents < 0 || settings.name_descriptions == NULL ||
+	    ((settings.n_connections == 0 || settings.n_worker_threads == 0 || settings.n_epoll_oevents == 0) && (settings.n_connections != 0 || settings.n_worker_threads != 0 || settings.n_epoll_oevents != 0)))
+	{
 		return NULL;
 	}
 	bool uses_internal_services = settings.n_connections != 0;
@@ -124,9 +127,7 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 	if (uses_internal_services) {
 		// connections
 		instance->connections.n_connections = settings.n_connections;
-		if ((instance->connections.connections = malloc(
-				 (settings.n_connections * sizeof(struct bdd_connections)) + (settings.n_connections * sizeof(int))))
-			== NULL) {
+		if ((instance->connections.connections = malloc((settings.n_connections * sizeof(struct bdd_connections)) + (settings.n_connections * sizeof(int)))) == NULL) {
 			goto bdd_go__err;
 		}
 		// available stack
@@ -178,9 +179,10 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 			goto bdd_go__err;
 		}
 		struct epoll_event event = {
-			.events = EPOLLIN,
-			.data = {
-				.ptr = NULL,
+		    .events = EPOLLIN,
+		    .data =
+			{
+			    .ptr = NULL,
 			},
 		};
 		if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, instance->serve_eventfd, &(event)) != 0) {

@@ -3,6 +3,7 @@
 #include "input_processor.h"
 #include "strtoint.h"
 #include "tls_put.h"
+
 #include <arpa/inet.h>
 #include <bddc/api.h>
 #include <fcntl.h>
@@ -26,29 +27,29 @@
 #endif
 
 struct bdd_settings settings = {
-	.name_descriptions = NULL,
-	.n_connections = 0x100,
-	.n_epoll_oevents = 0x100,
-	.buf_sz = 0x800,
-	.n_worker_threads = 16,
-	.client_timeout = 12000,
-	.use_stack_buf = false,
-	.sv_socket = -1,
-	.use_work_queues = false,
-	// .sigmask = x,
+    .name_descriptions = NULL,
+    .n_connections = 0x100,
+    .n_epoll_oevents = 0x100,
+    .buf_sz = 0x800,
+    .n_worker_threads = 16,
+    .client_timeout = 12000,
+    .use_stack_buf = false,
+    .sv_socket = -1,
+    .use_work_queues = false,
+    // .sigmask = x,
 };
 
 #define PASTE(x, y) x##y
-#define sto(w, t)                                    \
-	void PASTE(sto, w)(t * dest, char *str) {        \
-		signed long long int v;                      \
+#define sto(w, t) \
+	void PASTE(sto, w)(t * dest, char *str) { \
+		signed long long int v; \
 		if (!bdd_strtosll(str, strlen(str), &(v))) { \
-			return;                                  \
-		}                                            \
-		if (v == (t)v) {                             \
-			*dest = (t)v;                            \
-		}                                            \
-		return;                                      \
+			return; \
+		} \
+		if (v == (t)v) { \
+			*dest = (t)v; \
+		} \
+		return; \
 	}
 sto(i, int);
 sto(ui, unsigned int);
@@ -81,8 +82,8 @@ int main(int argc, char *argv[], char *env[]) {
 	struct bdd_instance *bdd_instance = NULL;
 	int input_fd = -1;
 	struct sockaddr_un input_addr = {
-		0,
-		.sun_family = AF_UNIX,
+	    0,
+	    .sun_family = AF_UNIX,
 	};
 	int sig_fd = -1;
 
@@ -131,11 +132,11 @@ int main(int argc, char *argv[], char *env[]) {
 	struct locked_hashmap *lh = hashmap_lock(settings.name_descriptions);
 	size_t big_alloc_sz = 0;
 
-#define EXPECT_ARGS(n)                                \
-	for (size_t idx = 1; idx <= n; ++idx) {           \
+#define EXPECT_ARGS(n) \
+	for (size_t idx = 1; idx <= n; ++idx) { \
 		if (arg[idx] == NULL || arg[idx][0] == '-') { \
-			goto main__arg_fuck;                      \
-		}                                             \
+			goto main__arg_fuck; \
+		} \
 	}
 main__arg_iter:;
 	while ((*arg) != NULL) {
@@ -180,8 +181,8 @@ main__arg_iter:;
 			arg += 1;
 		} else if (strcmp((*arg), "--nohup") == 0) {
 			struct sigaction action = {
-				.sa_handler = SIG_IGN,
-				.sa_flags = SA_RESTART,
+			    .sa_handler = SIG_IGN,
+			    .sa_flags = SA_RESTART,
 			};
 			sigaction(SIGHUP, &(action), 0);
 			arg += 1;
@@ -196,8 +197,8 @@ main__arg_iter:;
 				goto main__arg_creds_err;
 			}
 			struct bdd_cp_ctx cp_ctx = {
-				.success = false,
-				.password = getenv(arg[3]),
+			    .success = false,
+			    .password = getenv(arg[3]),
 			};
 			SSL_CTX_set_default_passwd_cb(ctx, bdd_cp_pwd);
 			SSL_CTX_set_default_passwd_cb_userdata(ctx, &(cp_ctx));
@@ -220,13 +221,17 @@ main__arg_iter:;
 				fputs("seemingly invalid certificate file\n", stderr);
 				goto main__arg_creds_err;
 			}
-		main__arg_creds_err:;
+main__arg_creds_err:;
 			if (ctx != NULL) {
 				SSL_CTX_free(ctx);
 			}
 			arg += 4;
 		} else if (strcmp((*arg), "--UNSAFE allocate buffer on stack") == 0) {
-			fputs("'--UNSAFE allocate buffer on stack' is unsafe and shouldn't be used\n", stderr);
+			fputs(
+			    "'--UNSAFE allocate buffer on stack' is unsafe and "
+			    "shouldn't be used\n",
+			    stderr
+			);
 			settings.use_stack_buf = true;
 			arg += 1;
 		} else if (getuid() == 0 && strcmp((*arg), "--uid") == 0) {
@@ -273,23 +278,32 @@ main__arg_iter:;
 						}
 					}
 			}
-		main__arg_fuck:;
+main__arg_fuck:;
 			puts(
-				"argument parsing failed\n"
-				"-t: set the amount of worker threads\n"
-				"--client-timeout: set the timeout (in ms) for client socket i/o\n"
-				"-l: set the rlimits for open files (soft limit, hard limit)\n"
-				"-b: set the size of the large worker buffers\n"
-				"--backlog: set the tcp backlog for sv_socket\n"
-				"-p: set the tcp port to bind sv_socket to\n"
-				"--max-connections: the max amount of bdd_connections structs\n"
-				"--disable-ipv6: sv_socket should not use ipv6\n"
-				"--use-work-queue: do not wait for worker threads before giving them work\n"
-				"--nohup: SIG_IGN SIGHUP\n"
-				"-c: load pem-encoded tls credentials (e.g. `-c cert.pem encrypted-key.pem name-of-password-environment-variable`)\n"
-				"--input: set the path for a udp unix socket, so that some bidirectiond settings can be modified without restarting\n"
-				"--n-epoll-oevents: epoll_wait maxevents\n"
-				"--big-alloc: reserve some ram");
+			    "argument parsing failed\n"
+			    "-t: set the amount of worker threads\n"
+			    "--client-timeout: set the timeout (in ms) for "
+			    "client socket i/o\n"
+			    "-l: set the rlimits for open files (soft limit, "
+			    "hard limit)\n"
+			    "-b: set the size of the large worker buffers\n"
+			    "--backlog: set the tcp backlog for sv_socket\n"
+			    "-p: set the tcp port to bind sv_socket to\n"
+			    "--max-connections: the max amount of "
+			    "bdd_connections structs\n"
+			    "--disable-ipv6: sv_socket should not use ipv6\n"
+			    "--use-work-queue: do not wait for worker threads "
+			    "before giving them work\n"
+			    "--nohup: SIG_IGN SIGHUP\n"
+			    "-c: load pem-encoded tls credentials (e.g. `-c "
+			    "cert.pem encrypted-key.pem "
+			    "name-of-password-environment-variable`)\n"
+			    "--input: set the path for a udp unix socket, so "
+			    "that some bidirectiond settings can be modified "
+			    "without restarting\n"
+			    "--n-epoll-oevents: epoll_wait maxevents\n"
+			    "--big-alloc: reserve some ram"
+			);
 			for (size_t idx = 0; idx < N_INTERNAL_SERVICES; ++idx) {
 				if (internal_services[idx].arguments_help != NULL) {
 					fputs(internal_services[idx].arguments_help, stdout);
@@ -321,7 +335,7 @@ main__arg_iter:;
 		struct sockaddr_in inet4;
 		struct sockaddr_in6 inet6;
 	} sv_addr = {
-		0,
+	    0,
 	};
 	size_t sv_addr_sz = 0;
 	if (disable_ipv6) {
@@ -341,7 +355,11 @@ main__arg_iter:;
 	int opt = 1;
 	setsockopt(settings.sv_socket, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &(opt), sizeof(opt));
 	if (bind(settings.sv_socket, (struct sockaddr *)&(sv_addr), sv_addr_sz) < 0 || listen(settings.sv_socket, backlog) < 0) {
-		fputs("failed to bind sv_socket! is the port already use? is the internet protocol enabled?\n", stderr);
+		fputs(
+		    "failed to bind sv_socket! is the port already use? is the "
+		    "internet protocol enabled?\n",
+		    stderr
+		);
 		goto main__clean_up;
 	}
 
@@ -384,15 +402,15 @@ main__arg_iter:;
 		goto main__clean_up;
 	}
 	struct pollfd pollfds[2] = {
-		{
-			.fd = sig_fd,
-			.events = POLLIN,
-		},
-		{
-			.fd = input_fd,
-			.events = POLLIN,
-			.revents = 0,
-		},
+	    {
+		.fd = sig_fd,
+		.events = POLLIN,
+	    },
+	    {
+		.fd = input_fd,
+		.events = POLLIN,
+		.revents = 0,
+	    },
 	};
 
 	// serve
@@ -420,13 +438,13 @@ main__arg_iter:;
 				goto main__clean_up;
 			}
 			switch (sig.ssi_signo) {
-			case (SIGINT):
-			case (SIGTERM): {
-				goto main__clean_up;
-			}
-			default: {
-				assert(false);
-			}
+				case (SIGINT):
+				case (SIGTERM): {
+					goto main__clean_up;
+				}
+				default: {
+					assert(false);
+				}
 			}
 		}
 		if (pollfds[1].revents & POLLIN) {
@@ -457,10 +475,10 @@ main__clean_up:;
 		hashmap_destroy(settings.name_descriptions);
 	}
 	// https://stackoverflow.com/questions/29845527/how-to-properly-uninitialize-openssl
-	//FIPS_mode_set(0);
+	// FIPS_mode_set(0);
 	CRYPTO_set_locking_callback(NULL);
 	CRYPTO_set_id_callback(NULL);
-	//ERR_remove_state(0);
+	// ERR_remove_state(0);
 	SSL_COMP_free_compression_methods();
 	ENGINE_cleanup();
 	CONF_modules_free();

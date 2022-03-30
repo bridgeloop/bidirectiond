@@ -10,7 +10,9 @@ extern SSL_CTX *BDD_GLOBAL_CL_SSL_CTX;
 void bdd_mutex_preinit(pthread_mutex_t *dest);
 void bdd_cond_preinit(pthread_cond_t *dest);
 
-// my justification for the following shit is: bdd's memory usage is already kinda pushing it, so i'd like to save some heap space in exchange for a few extra instructions
+// my justification for the following shit is: bdd's memory usage is already
+// kinda pushing it, so i'd like to save some heap space in exchange for a few
+// extra instructions
 #define bdd_connections_n_max_io(c) (c->service->n_max_io)
 #define bdd_connections_id(instance, c) (((char *)c - (char *)(instance->connections.connections)) / sizeof(struct bdd_connections))
 
@@ -110,9 +112,10 @@ int bdd_vdl_pthread_mutex_trylock(void *_, char *name, int ln);
 #define BDD_DEBUG_LOG(string, args...) (printf("[DEBUG (%p)] " string, (void *)pthread_self(), ##args), fflush(stdout))
 #endif
 
-enum bdd_connections_init_status { bdd_connections_init_success,
-								   bdd_connections_init_failed_wants_deinit,
-								   bdd_connections_init_failed,
+enum bdd_connections_init_status {
+	bdd_connections_init_success,
+	bdd_connections_init_failed_wants_deinit,
+	bdd_connections_init_failed,
 } __attribute__((packed));
 enum bdd_connections_init_status bdd_connections_init(struct bdd_connections *connections, SSL **client_ssl, struct sockaddr client_sockaddr, const struct bdd_internal_service *service, void *service_info);
 struct bdd_connections *bdd_connections_obtain(struct bdd_instance *instance);

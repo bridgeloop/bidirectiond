@@ -1,4 +1,5 @@
 #include "internal.h"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <openssl/err.h>
@@ -15,7 +16,8 @@ int bdd_use_correct_ctx(SSL *client_ssl, int *_, struct bdd_accept_ctx *ctx) {
 		goto ucc__err;
 	}
 
-	// to-do: strlen is slow af, maybe openssl can give us the length instead
+	// to-do: strlen is slow af, maybe openssl can give us the length
+	// instead
 	size_t name_len = strlen(name);
 	if (name_len == 0 || (name_len == 254 && name[253] != '.') || name_len > 254) {
 		goto ucc__err;
@@ -57,7 +59,7 @@ int bdd_use_correct_ctx(SSL *client_ssl, int *_, struct bdd_accept_ctx *ctx) {
 			}
 			if (name[idx] == '.') {
 				if (!fwc) {
-				ucc__place_wc:;
+ucc__place_wc:;
 					name_len += 1;
 					name[--idx] = '*';
 					break;
@@ -131,30 +133,30 @@ bdd_accept_thread__poll:;
 	}
 
 	switch (ctx->service_name_description->service_type) {
-	case (bdd_service_type_internal): {
+		case (bdd_service_type_internal): {
 #ifndef BIDIRECTIOND_ACCEPT_OCBCNS
-		if ((connections = bdd_connections_obtain(instance)) == NULL) {
-			goto bdd_accept__err;
-		}
+			if ((connections = bdd_connections_obtain(instance)) == NULL) {
+				goto bdd_accept__err;
+			}
 #endif
-		switch (bdd_connections_init(connections, &(client_ssl), cl_sockaddr, ctx->service_name_description->service.internal.service, ctx->service_name_description->service.internal.service_info)) {
-		case (bdd_connections_init_failed): {
-			goto bdd_accept__err;
-		}
-		case (bdd_connections_init_success): {
-			bdd_connections_link(instance, &(connections));
+			switch (bdd_connections_init(connections, &(client_ssl), cl_sockaddr, ctx->service_name_description->service.internal.service, ctx->service_name_description->service.internal.service_info)) {
+				case (bdd_connections_init_failed): {
+					goto bdd_accept__err;
+				}
+				case (bdd_connections_init_success): {
+					bdd_connections_link(instance, &(connections));
+					break;
+				}
+				case (bdd_connections_init_failed_wants_deinit): {
+					bdd_connections_deinit(connections);
+					goto bdd_accept__err;
+				}
+			}
 			break;
 		}
-		case (bdd_connections_init_failed_wants_deinit): {
-			bdd_connections_deinit(connections);
-			goto bdd_accept__err;
+		default: {
+			assert(false);
 		}
-		}
-		break;
-	}
-	default: {
-		assert(false);
-	}
 	}
 
 	locked_hashmap_unlock(&(ctx->locked_name_descriptions));
