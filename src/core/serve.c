@@ -126,10 +126,7 @@ bdd_serve__find_connections:;
 		} else {
 			pthread_mutex_lock(&(workers->available_stack.mutex));
 			if (workers->available_stack.idx == workers->n_workers) {
-				BDD_DEBUG_LOG(
-					"no available worker "
-					"threads; waiting...\n"
-				);
+				BDD_DEBUG_LOG("no available worker threads; waiting...\n");
 				do {
 					pthread_cond_wait(&(workers->available_stack.cond), &(workers->available_stack.mutex));
 				} while (workers->available_stack.idx == workers->n_workers);
