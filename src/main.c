@@ -107,7 +107,7 @@ int main(int argc, char *argv[], char *env[]) {
 		nuid will be used later to restore a safe uid, if the process
 		becomes (or already is) root. */
 	uid_t nuid = getuid();
-	gid_t ngid = getgid();
+	uid_t ngid = getgid();
 
 	setpwent();
 	for (struct passwd *pw = getpwent(); pw != NULL; pw = getpwent()) {
@@ -310,10 +310,6 @@ main__arg_fuck:;
 	}
 	locked_hashmap_unlock(&(lh));
 
-	// potentially a setgid program
-	if (getgid() != 0 && getegid() == 0) {
-		setgid(0);
-	}
 	// potentially a setuid program
 	if (getuid() != 0 && geteuid() == 0) {
 		setuid(0);
@@ -356,9 +352,7 @@ main__arg_fuck:;
 		goto main__clean_up;
 	}
 
-	if (getgid() == 0) {
-		setgid(ngid);
-	}
+	setgid(ngid);
 	if (getuid() == 0) {
 		setuid(nuid);
 	}
