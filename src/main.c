@@ -29,7 +29,7 @@
 struct bdd_settings settings = {
 	.name_descriptions = NULL,
 	.n_connections = 0x100,
-	.n_epoll_oevents = 0x100,
+	.n_epoll_oevents = 0x200,
 	.buf_sz = 0x800,
 	.n_worker_threads = 16,
 	.client_timeout = 12000,
