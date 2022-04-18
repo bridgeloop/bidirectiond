@@ -188,9 +188,6 @@ main__arg_iter:;
 		} else if (strcmp((*arg), "--tls-credentials") == 0 || strcmp((*arg), "-c") == 0) {
 			EXPECT_ARGS(3);
 			SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
-			if (SSL_CTX_set_cipher_list(ctx, "AES256-SHA256") == 0) {
-				goto main__arg_creds_err;
-			}
 			if (SSL_CTX_use_certificate_file(ctx, arg[1], SSL_FILETYPE_PEM) != 1) {
 				fputs("invalid certificate file\n", stderr);
 				goto main__arg_creds_err;
