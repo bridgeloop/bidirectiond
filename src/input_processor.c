@@ -113,9 +113,6 @@ input_processor__matched:;
 		if (ctx == NULL) {
 			goto input_processor__tls_pem_load_err;
 		}
-		if (SSL_CTX_set_cipher_list(ctx, "AES256-SHA256") == 0) {
-			goto input_processor__tls_pem_load_err;
-		}
 		if ((bio = BIO_new(BIO_s_mem())) == NULL) {
 			goto input_processor__tls_pem_load_err;
 		}
