@@ -315,12 +315,6 @@ main__arg_fuck:;
 		setuid(0);
 	}
 
-	if (port < 1024 && getuid() != 0) {
-		// root required to obtain port 443
-		fputs("must be run as root\n", stderr);
-		goto main__clean_up;
-	}
-
 	// set up socket
 	union {
 		struct sockaddr_in inet4;
@@ -345,10 +339,12 @@ main__arg_fuck:;
 	// try to bind to port
 	int opt = 1;
 	setsockopt(settings.sv_socket, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &(opt), sizeof(opt));
-	if (bind(settings.sv_socket, (struct sockaddr *)&(sv_addr), sv_addr_sz) < 0 || listen(settings.sv_socket, backlog) < 0) {
-		fputs("failed to bind sv_socket! is the port already use? is the "
-		      "internet protocol enabled?\n",
-		      stderr);
+	if (bind(settings.sv_socket, (struct sockaddr *)&(sv_addr), sv_addr_sz) < 0) {
+		fprintf(stderr, "failed to bind sv_socket! errno: %i\n", errno);
+		goto main__clean_up;
+	}
+	if (listen(settings.sv_socket, backlog) < 0) {
+		fprintf(stderr, "failed to listen on sv_socket! errno: %i\n", errno);
 		goto main__clean_up;
 	}
 
