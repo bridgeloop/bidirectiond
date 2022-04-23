@@ -48,8 +48,6 @@ struct bdd_connections {
 };
 
 struct bdd_internal_service {
-	char *name;
-
 	bool (*serve)(struct bdd_connections *connections, void *buf, size_t buf_size);
 
 	bool (*connections_init)(struct bdd_connections *connections, void *service_info, bdd_io_id client_id, struct sockaddr client_sockaddr);

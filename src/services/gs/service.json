@@ -1,5 +1,4 @@
 {
-    "name": "general_service",
     "serve": "general_service__serve",
     "service_init": "general_service__service_init",
     "connections_init": "general_service__connections_init",
