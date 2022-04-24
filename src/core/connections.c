@@ -5,6 +5,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#define INST_CONNECTIONS (instance->connections)
+
 __attribute__((warn_unused_result)) int bdd_poll(struct bdd_connections *connections, bdd_io_id io_id) {
 	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
 	struct bdd_io *io = &(connections->io[io_id]);
@@ -34,13 +36,15 @@ __attribute__((warn_unused_result)) ssize_t bdd_read_internal(struct bdd_io *io,
 	} while (r < 0 && errno == EINTR);
 	return r;
 }
-__attribute__((warn_unused_result)) ssize_t bdd_read(struct bdd_connections *connections, bdd_io_id io_id, void *buf, ssize_t sz) {
+__attribute__((warn_unused_result)) ssize_t
+bdd_read(struct bdd_connections *connections, bdd_io_id io_id, void *buf, ssize_t sz) {
 	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
 	struct bdd_io *io = &(connections->io[io_id]);
 	assert(io->fd != -1);
 	return bdd_read_internal(io, buf, sz);
 }
-__attribute__((warn_unused_result)) ssize_t bdd_read_whole(struct bdd_connections *connections, bdd_io_id io_id, void *buf, ssize_t sz) {
+__attribute__((warn_unused_result)) ssize_t
+bdd_read_whole(struct bdd_connections *connections, bdd_io_id io_id, void *buf, ssize_t sz) {
 	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
 	struct bdd_io *io = &(connections->io[io_id]);
 	assert(io->fd != -1);
@@ -71,13 +75,15 @@ __attribute__((warn_unused_result)) ssize_t bdd_write_internal(struct bdd_io *io
 	} while (r < 0 && errno == EINTR);
 	return r;
 }
-__attribute__((warn_unused_result)) ssize_t bdd_write(struct bdd_connections *connections, bdd_io_id io_id, void *buf, ssize_t sz) {
+__attribute__((warn_unused_result)) ssize_t
+bdd_write(struct bdd_connections *connections, bdd_io_id io_id, void *buf, ssize_t sz) {
 	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
 	struct bdd_io *io = &(connections->io[io_id]);
 	assert(io->fd != -1);
 	return bdd_write_internal(io, buf, sz);
 }
-__attribute__((warn_unused_result)) ssize_t bdd_write_whole(struct bdd_connections *connections, bdd_io_id io_id, void *buf, ssize_t sz) {
+__attribute__((warn_unused_result)) ssize_t
+bdd_write_whole(struct bdd_connections *connections, bdd_io_id io_id, void *buf, ssize_t sz) {
 	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
 	struct bdd_io *io = &(connections->io[io_id]);
 	assert(io->fd != -1);
@@ -108,7 +114,7 @@ void bdd_set_associated(struct bdd_connections *connections, void *data, void (*
 	connections->associated.destructor = destructor;
 	return;
 }
-bool bdd_create_io(struct bdd_connections *connections, bdd_io_id *io_id, int *fd, char *ssl_name) {
+bool bdd_create_io(struct bdd_connections *connections, bdd_io_id *io_id, int *fd, const char *ssl_name) {
 	assert(connections != NULL && io_id != NULL);
 	struct bdd_io *io = NULL;
 	bdd_io_id idx = 0;
@@ -166,7 +172,14 @@ void bdd_remove_io(struct bdd_connections *connections, bdd_io_id io_id) {
 	return;
 }
 
-enum bdd_connections_init_status bdd_connections_init(struct bdd_connections *connections, SSL **client_ssl, struct sockaddr client_sockaddr, const struct bdd_internal_service *service, void *service_info) {
+enum bdd_connections_init_status bdd_connections_init(
+	struct bdd_connections *connections,
+	SSL **client_ssl,
+	struct sockaddr client_sockaddr,
+	const struct bdd_service *service,
+	const char *protocol_name,
+	void *instance_info
+) {
 	assert(service->n_max_io > 0);
 	if ((connections->io = malloc(sizeof(struct bdd_io) * service->n_max_io)) == NULL) {
 		return bdd_connections_init_failed;
@@ -179,7 +192,9 @@ enum bdd_connections_init_status bdd_connections_init(struct bdd_connections *co
 		connections->io[idx].fd = -1;
 		connections->io[idx].ssl = NULL;
 	}
-	if (service->connections_init != NULL && !service->connections_init(connections, service_info, 0, client_sockaddr)) {
+	if (service->connections_init != NULL
+	    && !service->connections_init(connections, protocol_name, instance_info, 0, client_sockaddr))
+	{
 		return bdd_connections_init_failed_wants_deinit;
 	}
 	return bdd_connections_init_success;
@@ -201,44 +216,45 @@ void bdd_connections_deinit(struct bdd_connections *connections) {
 	connections->broken = false;
 	return;
 }
-void bdd_connections_link(struct bdd_instance *instance, struct bdd_connections **_connections) {
-	assert(_connections != NULL);
-	struct bdd_connections *connections = (*_connections);
+void bdd_connections_link(struct bdd_instance *instance, struct bdd_connections **connections_r) {
+	assert(connections_r != NULL);
+	struct bdd_connections *connections = (*connections_r);
 	assert(connections != NULL);
 	pthread_mutex_lock(&(instance->linked_connections.mutex));
 	connections->next = instance->linked_connections.head;
 	instance->linked_connections.head = connections;
 	bdd_signal(instance);
 	pthread_mutex_unlock(&(instance->linked_connections.mutex));
-	(*_connections) = NULL;
+	(*connections_r) = NULL;
 	return;
 }
 struct bdd_connections *bdd_connections_obtain(struct bdd_instance *instance) {
-	if (instance->connections.n_connections <= 0) {
+	if (INST_CONNECTIONS.n_connections <= 0) {
 		return NULL;
 	}
 	struct bdd_connections *connections = NULL;
-	pthread_mutex_lock(&(instance->connections.available_mutex));
-	while (!atomic_load(&(instance->exiting)) && instance->connections.available_idx == instance->connections.n_connections) {
-		pthread_cond_wait(&(instance->connections.available_cond), &(instance->connections.available_mutex));
+	pthread_mutex_lock(&(INST_CONNECTIONS.available_mutex));
+	while (!atomic_load(&(instance->exiting)) && INST_CONNECTIONS.available_idx == INST_CONNECTIONS.n_connections) {
+		pthread_cond_wait(&(INST_CONNECTIONS.available_cond), &(INST_CONNECTIONS.available_mutex));
 	}
 	if (!atomic_load(&(instance->exiting))) {
-		connections = &(instance->connections.connections[instance->connections.available[instance->connections.available_idx++]]);
+		connections
+			= &(INST_CONNECTIONS.connections[INST_CONNECTIONS.available[INST_CONNECTIONS.available_idx++]]);
 	}
-	pthread_mutex_unlock(&(instance->connections.available_mutex));
+	pthread_mutex_unlock(&(INST_CONNECTIONS.available_mutex));
 	return connections;
 }
-void bdd_connections_release(struct bdd_instance *instance, struct bdd_connections **_connections) {
-	assert(_connections != NULL);
-	struct bdd_connections *connections = (*_connections);
+void bdd_connections_release(struct bdd_instance *instance, struct bdd_connections **connections_r) {
+	assert(connections_r != NULL);
+	struct bdd_connections *connections = (*connections_r);
 	assert(connections != NULL);
-	pthread_mutex_lock(&(instance->connections.available_mutex));
-	assert(instance->connections.available_idx != 0);
+	pthread_mutex_lock(&(INST_CONNECTIONS.available_mutex));
+	assert(INST_CONNECTIONS.available_idx != 0);
 	int id = bdd_connections_id(instance, connections);
-	assert(id >= 0 && id < instance->connections.n_connections);
-	instance->connections.available[--(instance->connections.available_idx)] = id;
-	pthread_cond_signal(&(instance->connections.available_cond));
-	pthread_mutex_unlock(&(instance->connections.available_mutex));
-	(*_connections) = NULL;
+	assert(id >= 0 && id < INST_CONNECTIONS.n_connections);
+	INST_CONNECTIONS.available[--(INST_CONNECTIONS.available_idx)] = id;
+	pthread_cond_signal(&(INST_CONNECTIONS.available_cond));
+	pthread_mutex_unlock(&(INST_CONNECTIONS.available_mutex));
+	(*connections_r) = NULL;
 	return;
 }

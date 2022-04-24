@@ -38,9 +38,9 @@ int bdd_use_correct_ctx(SSL *client_ssl, int *_, struct bdd_accept_ctx *ctx) {
 				found_req |= 0b01;
 				SSL_set_SSL_CTX(client_ssl, name_description->ssl_ctx);
 			}
-			if (!(found_req & 0b10) && name_description->service_type != bdd_service_type_none) {
+			if (!(found_req & 0b10) && name_description->service_instances != NULL) {
 				found_req |= 0b10;
-				ctx->service_name_description = name_description;
+				ctx->service_instance = name_description->service_instances;
 			}
 			if (found_req == 0b11) {
 				r = SSL_TLSEXT_ERR_OK;
@@ -89,7 +89,8 @@ bdd_accept_thread__poll:;
 
 	struct bdd_connections *connections = NULL;
 	SSL *client_ssl = NULL;
-	instance->accept.accept_ctx.service_name_description = NULL;
+	ctx->service_instance = NULL;
+	ctx->protocol_name = NULL;
 	int cl_socket = -1;
 
 #ifdef BIDIRECTIOND_ACCEPT_OCBCNS
@@ -132,30 +133,34 @@ bdd_accept_thread__poll:;
 		goto bdd_accept__err;
 	}
 
-	switch (ctx->service_name_description->service_type) {
-		case (bdd_service_type_internal): {
+	assert(ctx->service_instance != NULL);
+	// assert(ctx->protocol_name != NULL); // unused variable for now
+
+	struct bdd_service_instance *service_inst = ctx->service_instance;
 #ifndef BIDIRECTIOND_ACCEPT_OCBCNS
-			if ((connections = bdd_connections_obtain(instance)) == NULL) {
-				goto bdd_accept__err;
-			}
+	if ((connections = bdd_connections_obtain(instance)) == NULL) {
+		goto bdd_accept__err;
+	}
 #endif
-			switch (bdd_connections_init(connections, &(client_ssl), cl_sockaddr, ctx->service_name_description->service.internal.service, ctx->service_name_description->service.internal.service_info)) {
-				case (bdd_connections_init_failed): {
-					goto bdd_accept__err;
-				}
-				case (bdd_connections_init_success): {
-					bdd_connections_link(instance, &(connections));
-					break;
-				}
-				case (bdd_connections_init_failed_wants_deinit): {
-					bdd_connections_deinit(connections);
-					goto bdd_accept__err;
-				}
-			}
+	switch (bdd_connections_init(
+		connections,
+		&(client_ssl),
+		cl_sockaddr,
+		service_inst->service,
+		ctx->protocol_name,
+		service_inst->instance_info
+	))
+	{
+		case (bdd_connections_init_failed): {
+			goto bdd_accept__err;
+		}
+		case (bdd_connections_init_success): {
+			bdd_connections_link(instance, &(connections));
 			break;
 		}
-		default: {
-			assert(false);
+		case (bdd_connections_init_failed_wants_deinit): {
+			bdd_connections_deinit(connections);
+			goto bdd_accept__err;
 		}
 	}
 

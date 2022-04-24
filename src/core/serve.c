@@ -30,7 +30,9 @@ bdd_serve__find_connections:;
 		int r = read(instance->serve_eventfd, &(g), 8);
 		assert(r == 8 || r < 0);
 	}
-	for (struct bdd_connections **curr = &(instance->linked_connections.head), *connections; (connections = (*curr)) != NULL;) {
+	for (struct bdd_connections **curr = &(instance->linked_connections.head), *connections;
+	     (connections = (*curr)) != NULL;)
+	{
 		struct bdd_connections **next = &(connections->next);
 		connections->working = false;
 		bool broken = true;
@@ -125,7 +127,10 @@ bdd_serve__find_connections:;
 			if (workers->available_stack.idx == workers->n_workers) {
 				BDD_DEBUG_LOG("no available worker threads; waiting...\n");
 				do {
-					pthread_cond_wait(&(workers->available_stack.cond), &(workers->available_stack.mutex));
+					pthread_cond_wait(
+						&(workers->available_stack.cond),
+						&(workers->available_stack.mutex)
+					);
 				} while (workers->available_stack.idx == workers->n_workers);
 			}
 			worker = &(workers->info[workers->available_stack.ids[(workers->available_stack.idx)++]]);

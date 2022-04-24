@@ -87,7 +87,8 @@ int main(int argc, char *argv[], char *env[]) {
 	int sig_fd = -1;
 
 	// name_descriptions
-	if ((settings.name_descriptions = hashmap_create((void (*)(void *)) & (bdd_name_description_destroy))) == NULL) {
+	if ((settings.name_descriptions = bdd_name_descriptions_create()) == NULL)
+	{
 		fputs("failed to allocate settings.name_descriptions\n", stderr);
 		goto main__clean_up;
 	}
@@ -256,15 +257,24 @@ main__arg_creds_err:;
 			stosz(&(big_alloc_sz), arg[1]);
 			arg += 2;
 		} else {
-			for (size_t idx = 0; idx < N_INTERNAL_SERVICES; ++idx) {
-				if (internal_services[idx].supported_arguments != NULL)
-					for (size_t pidx = 0; internal_services[idx].supported_arguments[pidx]; ++pidx) {
-						if (strcmp((*arg), internal_services[idx].supported_arguments[pidx]) == 0) {
+			for (size_t idx = 0; idx < N_SERVICES; ++idx) {
+				if (services[idx].supported_arguments != NULL)
+					for (size_t pidx = 0; services[idx].supported_arguments[pidx]; ++pidx)
+					{
+						if (strcmp((*arg), services[idx].supported_arguments[pidx])
+						    == 0) {
 							size_t n = 1;
-							while (arg[n] != NULL && (arg[n][0] != '-' || (arg[n][1] >= '0' && arg[n][1] <= '9'))) {
+							while (arg[n] != NULL
+							       && (arg[n][0] != '-'
+								   || (arg[n][1] >= '0' && arg[n][1] <= '9'))) {
 								n += 1;
 							}
-							if (!internal_services[idx].service_init(lh, &(internal_services[idx]), n, arg)) {
+							if (!services[idx].instantiate(
+								    lh,
+								    &(services[idx]),
+								    n,
+								    (const char **)arg
+							    )) {
 								goto main__arg_fuck;
 							}
 							arg = &(arg[n]);
@@ -296,9 +306,9 @@ main__arg_fuck:;
 			     "without restarting\n"
 			     "--n-epoll-oevents: epoll_wait maxevents\n"
 			     "--big-alloc: reserve some ram");
-			for (size_t idx = 0; idx < N_INTERNAL_SERVICES; ++idx) {
-				if (internal_services[idx].arguments_help != NULL) {
-					fputs(internal_services[idx].arguments_help, stdout);
+			for (size_t idx = 0; idx < N_SERVICES; ++idx) {
+				if (services[idx].arguments_help != NULL) {
+					fputs(services[idx].arguments_help, stdout);
 				}
 			}
 			locked_hashmap_unlock(&(lh));
@@ -409,7 +419,9 @@ main__arg_fuck:;
 	struct signalfd_siginfo sig;
 	for (;;) {
 		while (poll((struct pollfd *)&(pollfds), input_fd < 0 ? 1 : 2, -1) < 0) {
-			if (errno != EINTR /* e.g., SIGUSR1 could be sent to bidirectiond, and then handled by this thread */) {
+			if (errno
+			    != EINTR /* e.g., SIGUSR1 could be sent to bidirectiond, and then handled by this thread */)
+			{
 				goto main__clean_up;
 			}
 		}

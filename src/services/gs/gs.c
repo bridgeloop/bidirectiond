@@ -36,9 +36,15 @@ bool general_service__serve(struct bdd_connections *connections, void *buf, size
 }
 struct general_service__info {
 	struct addrinfo *addrinfo;
-	char *tls_name;
+	const char *tls_name;
 };
-bool general_service__connections_init(struct bdd_connections *connections, void *service_info, bdd_io_id client_id, struct sockaddr client_sockaddr) {
+bool general_service__connections_init(
+	struct bdd_connections *connections,
+	const char *protocol_name,
+	void *service_info,
+	bdd_io_id client_id,
+	struct sockaddr client_sockaddr
+) {
 	struct general_service__info *info = service_info;
 	struct addrinfo *addrinfo = info->addrinfo;
 	int sock = -1;
@@ -77,7 +83,14 @@ void general_service__service_info_destructor(void *hint) {
 	freeaddrinfo(info->addrinfo);
 	free(info);
 }
-static bool handle_s(struct locked_hashmap *name_descriptions, struct bdd_internal_service *service, char *scope, char *addr, char *port, bool use_tls) {
+static bool handle_s(
+	struct locked_hashmap *name_descriptions,
+	struct bdd_service *service,
+	const char *scope,
+	const char *addr,
+	const char *port,
+	bool use_tls
+) {
 	struct general_service__info *info = malloc(sizeof(struct general_service__info));
 	struct addrinfo hints = {
 		0,
@@ -97,7 +110,7 @@ static bool handle_s(struct locked_hashmap *name_descriptions, struct bdd_intern
 		goto handle_s__err;
 	}
 	info->addrinfo = res;
-	if (!bdd_name_descriptions_set_internal_service(name_descriptions, scope, strlen(scope), service, info)) {
+	if (!bdd_name_descriptions_add_service_instance(name_descriptions, scope, strlen(scope), service, info)) {
 		goto handle_s__err;
 	}
 	return true;
@@ -110,7 +123,12 @@ handle_s__err:;
 	}
 	return false;
 }
-bool general_service__service_init(struct locked_hashmap *name_descriptions, struct bdd_internal_service *service, size_t argc, char **argv) {
+bool general_service__service_init(
+	struct locked_hashmap *name_descriptions,
+	struct bdd_service *service,
+	size_t argc,
+	const char **argv
+) {
 	if (strcmp(argv[0], "-s") == 0) {
 		if (argc != 5) {
 			return false;

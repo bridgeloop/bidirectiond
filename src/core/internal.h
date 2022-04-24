@@ -14,7 +14,19 @@ void bdd_cond_preinit(pthread_cond_t *dest);
 // kinda pushing it, so i'd like to save some heap space in exchange for a few
 // extra instructions
 #define bdd_connections_n_max_io(c) (c->service->n_max_io)
-#define bdd_connections_id(instance, c) (((char *)c - (char *)(instance->connections.connections)) / sizeof(struct bdd_connections))
+#define bdd_connections_id(instance, c) \
+	(((char *)c - (char *)(instance->connections.connections)) / sizeof(struct bdd_connections))
+
+struct bdd_service_instance {
+	const struct bdd_service *service;
+	void *instance_info;
+
+	struct bdd_service_instance *next;
+};
+struct bdd_name_description {
+	SSL_CTX *ssl_ctx;
+	struct bdd_service_instance *service_instances;
+};
 
 struct bdd_worker {
 	struct bdd_instance *const instance;
@@ -39,7 +51,8 @@ struct bdd_workers {
 };
 
 struct bdd_accept_ctx {
-	struct bdd_name_description *service_name_description;
+	void *service_instance;
+	const char *protocol_name;
 	struct locked_hashmap *locked_name_descriptions;
 };
 
@@ -117,7 +130,14 @@ enum bdd_connections_init_status {
 	bdd_connections_init_failed_wants_deinit,
 	bdd_connections_init_failed,
 } __attribute__((packed));
-enum bdd_connections_init_status bdd_connections_init(struct bdd_connections *connections, SSL **client_ssl, struct sockaddr client_sockaddr, const struct bdd_internal_service *service, void *service_info);
+enum bdd_connections_init_status bdd_connections_init(
+	struct bdd_connections *connections,
+	SSL **client_ssl,
+	struct sockaddr client_sockaddr,
+	const struct bdd_service *service,
+	const char *protocol_name,
+	void *instance_info
+);
 struct bdd_connections *bdd_connections_obtain(struct bdd_instance *instance);
 void bdd_connections_release(struct bdd_instance *instance, struct bdd_connections **connections);
 void bdd_connections_deinit(struct bdd_connections *connections);

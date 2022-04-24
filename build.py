@@ -6,11 +6,11 @@ if sys.argv[0] != "./build.py":
     exit(1)
 gcc_args = ["gcc", "-o", "bidirectiond"]
 services_c = "#include <bddc/api.h>\n"
-services = "struct bdd_internal_service internal_services[] = {"
+services = "struct bdd_service services[] = {"
 names = [
 	["bool %s(struct bdd_connections *connections, void *buf, size_t buf_size);", "serve"],
-	["bool %s(struct bdd_connections *connections, void *service_info, bdd_io_id client_id, struct sockaddr client_sockaddr);", "connections_init"],
-	["void %s(void *service_info);", "service_info_destructor"]]
+	["bool %s(struct bdd_connections *connections, const char *protocol_name, void *instance_info, bdd_io_id client_id, struct sockaddr client_sockaddr);", "connections_init"],
+	["void %s(void *instance_info);", "instance_info_destructor"]]
 np = 0
 for dir, _, files in os.walk("src"):
     for file in files:
@@ -31,13 +31,17 @@ for dir, _, files in os.walk("src"):
                 else:
                     services += "NULL"
                 services += ","
-            services_c += f"""bool {p["service_init"]}(struct locked_hashmap *name_descriptions, struct bdd_internal_service *service, size_t n_arguments, char **arguments);\n"""
+            services_c += f"""bool {p["instantiate"]}(struct locked_hashmap *name_descriptions, struct bdd_service *service, size_t n_arguments, const char **arguments);\n"""
+            supported_protocols = "NULL"
+            if "supported_protocols" in p:
+                supported_protocols = "(const char *[]){ %s, NULL, }" % json.dumps(p["supported_protocols"])[1:-1]
             services += """
-				.service_init = &(%s),
-				.supported_arguments = (char *[]){ %s, NULL, },
+				.instantiate = &(%s),
+				.supported_arguments = (const char *[]){ %s, NULL, },
 				.arguments_help = (char *)%s,
 				.n_max_io = %i,
-			}""" % (p["service_init"], json.dumps(p["supported_arguments"])[1:-1], json.dumps(p["arguments_help"]), p["n_max_io"])
+				.supported_protocols = %s,
+			}""" % (p["instantiate"], json.dumps(p["supported_arguments"])[1:-1], json.dumps(p["arguments_help"]), p["n_max_io"], supported_protocols)
             fd.close()
 services += "};"
 services_c += services
@@ -46,6 +50,6 @@ fd.write(services_c)
 fd.close()
 gcc_args.append("src/_services.c")
 sysname = os.uname().sysname
-gcc_args.extend(["-lpthread", "-lssl", "-lcrypto", "-Iinc", "-DN_INTERNAL_SERVICES=" + str(np), "-DPROG_SEMVER=" + json.dumps(semver), "-funsigned-char"] + sys.argv[1:])
+gcc_args.extend(["-lpthread", "-lssl", "-lcrypto", "-Iinc", "-DN_SERVICES=" + str(np), "-DPROG_SEMVER=" + json.dumps(semver), "-funsigned-char"] + sys.argv[1:])
 subprocess.call(gcc_args)
 os.unlink("src/_services.c")

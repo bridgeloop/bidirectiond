@@ -35,7 +35,7 @@ BraceWrapping:
  SplitEmptyFunction: false
 BreakBeforeTernaryOperators: true
 BreakStringLiterals: false
-ColumnLimit: 300
+ColumnLimit: 120
 ContinuationIndentWidth: 8
 DeriveLineEnding: false
 DerivePointerAlignment: false
