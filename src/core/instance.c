@@ -180,8 +180,7 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 	}
 	SSL_CTX_set_max_proto_version(instance->accept.ssl_ctx, TLS1_2_VERSION);
 	SSL_CTX_set_options(instance->accept.ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
-	SSL_CTX_set_tlsext_servername_callback(instance->accept.ssl_ctx, &(bdd_use_correct_ctx));
-	SSL_CTX_set_tlsext_servername_arg(instance->accept.ssl_ctx, &(instance->accept.accept_ctx));
+	SSL_CTX_set_client_hello_cb(instance->accept.ssl_ctx, bdd_hello_cb, &(instance->accept.accept_ctx));
 	if (uses_internal_services) {
 		// serve
 		if ((instance->serve_eventfd = eventfd(0, EFD_NONBLOCK)) < 0) {

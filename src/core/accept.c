@@ -7,32 +7,33 @@
 #include <string.h>
 #include <unistd.h>
 
-int bdd_use_correct_ctx(SSL *client_ssl, int *_, struct bdd_accept_ctx *ctx) {
-	int r = SSL_TLSEXT_ERR_ALERT_FATAL;
-
-	char *name = (char *)SSL_get_servername(client_ssl, TLSEXT_NAMETYPE_host_name);
-	if (unlikely(name == NULL)) {
-		BDD_DEBUG_LOG("no dns name\n");
-		goto ucc__err;
+// shout-out to openssl for this shit
+// like fr what are these apis
+int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
+	char *extension;
+	size_t extension_sz;
+	if (SSL_client_hello_get0_ext(client_ssl, TLSEXT_TYPE_server_name, &(extension), &(extension_sz)) == 0) {
+		return SSL_CLIENT_HELLO_ERROR;
 	}
-
-	// to-do: strlen is slow af, maybe openssl can give us the length
-	// instead
-	size_t name_len = strlen(name);
-	if (name_len == 0 || (name_len == 254 && name[253] != '.') || name_len > 254) {
-		goto ucc__err;
+	if (extension_sz <= 4) {
+		return SSL_CLIENT_HELLO_ERROR;
 	}
-	if (name[name_len - 1] == '.') {
-		if ((name_len -= 1) == 0) {
-			goto ucc__err;
+	if (extension[2] != TLSEXT_NAMETYPE_host_name) {
+		return SSL_CLIENT_HELLO_ERROR;
+	}
+	
+	unsigned short int name_sz = ntohs(*(unsigned short int *)(&(extension[3])));
+	char *name = (char *)&(extension[5]);
+	
+	if (name[name_sz - 1] == '.') {
+		if ((name_sz -= 1) == 0) {
+			return SSL_CLIENT_HELLO_ERROR;
 		}
 	}
-
-	// i'm doing great, okay?
-	// thabks
+	
 	uint8_t found_req = 0;
 	for (size_t idx = 0;;) {
-		struct bdd_name_description *name_description = locked_hashmap_get_wl(ctx->locked_name_descriptions, &(name[idx]), name_len);
+		struct bdd_name_description *name_description = locked_hashmap_get_wl(ctx->locked_name_descriptions, &(name[idx]), name_sz);
 		if (name_description != NULL) {
 			if (!(found_req & 0b01) && name_description->ssl_ctx != NULL) {
 				found_req |= 0b01;
@@ -43,35 +44,31 @@ int bdd_use_correct_ctx(SSL *client_ssl, int *_, struct bdd_accept_ctx *ctx) {
 				ctx->service_instance = name_description->service_instances;
 			}
 			if (found_req == 0b11) {
-				r = SSL_TLSEXT_ERR_OK;
 				break;
 			}
 		}
 		bool fwc = name[idx] == '*';
 		do {
 			idx += 1;
-			name_len -= 1;
-			if (name_len == 0) {
+			name_sz -= 1;
+			if (name_sz == 0) {
 				if (fwc) {
-					goto ucc__err;
+					return SSL_CLIENT_HELLO_ERROR;
 				}
-				goto ucc__place_wc;
+				goto place_wc;
 			}
 			if (name[idx] == '.') {
 				if (!fwc) {
-ucc__place_wc:;
-					name_len += 1;
-					name[--idx] = '*';
+place_wc:;
+					name_sz += 1;
+					name[--idx] = '*'; // is this safe? fuck it i aint a bitch
 					break;
 				}
 				fwc = false;
 			}
 		} while (true);
 	}
-
-ucc__err:;
-	BDD_DEBUG_LOG("r: %i\n", r);
-	return r;
+	return SSL_CLIENT_HELLO_SUCCESS;
 }
 
 void *bdd_accept(struct bdd_instance *instance) {
