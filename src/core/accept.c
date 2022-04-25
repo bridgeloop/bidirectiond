@@ -23,6 +23,10 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 	}
 	
 	unsigned short int name_sz = ntohs(*(unsigned short int *)(&(extension[3])));
+	if (name_sz == 0) {
+		return SSL_CLIENT_HELLO_ERROR;
+	}
+	
 	char *name = (char *)&(extension[5]);
 	
 	if (name[name_sz - 1] == '.') {
