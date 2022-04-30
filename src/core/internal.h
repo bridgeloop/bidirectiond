@@ -154,6 +154,8 @@ void bdd_stop_accept(struct bdd_instance *instance);
 
 void bdd_thread_exit(struct bdd_instance *instance);
 
+SSL_CTX *bdd_ssl_ctx_skel(void);
+
 #ifndef unlikely
 #define unlikely(x) __builtin_expect((x), 0)
 #endif

@@ -7,8 +7,26 @@
 #include <string.h>
 #include <unistd.h>
 
-// shout-out to openssl for this shit
-// like fr what are these apis
+SSL_CTX *bdd_ssl_ctx_skel(void) {
+	SSL_CTX *ssl_ctx = SSL_CTX_new(TLS_server_method());
+	if (ssl_ctx == NULL) {
+		return NULL;
+	}
+	if (SSL_CTX_set_ciphersuites(
+		ssl_ctx,
+		"TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256"
+	) != 1) {
+		goto err;
+	}
+	SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
+	SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
+	return ssl_ctx;
+	
+	err:;
+	SSL_CTX_free(ssl_ctx);
+	return NULL;
+}
+
 int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 	const unsigned char *extension;
 	size_t extension_sz;

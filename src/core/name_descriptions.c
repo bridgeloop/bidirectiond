@@ -79,15 +79,13 @@ void bdd_name_description_destroy(struct bdd_name_description *name_description)
 
 // name_descriptions hashmap
 #define bdd_name_descriptions() \
-	if (scope_sz == 0 || scope_sz > 254 || (scope_sz == 254 && scope[253] != '.')) { \
+	if (scope_sz > 254 || (scope_sz == 254 && scope[253] != '.')) { \
 		return false; \
 	} \
-	if (scope[scope_sz - 1] == '.') { \
-		if ((scope_sz -= 1) == 0) { \
-			return false; \
-		} \
+	if (scope_sz > 0 && scope[scope_sz - 1] == '.') { \
+		scope_sz -= 1; \
 	} \
-	if (scope[0] == '*') { \
+	if (scope_sz > 0 && scope[0] == '*') { \
 		if (scope_sz > 1 && scope[1] != '.') { \
 			return false; \
 		} \
@@ -170,15 +168,10 @@ bool bdd_name_descriptions_create_ssl_ctx(
 	X509 *x509 = *x509_ref;
 	EVP_PKEY *pkey = *pkey_ref;
 
-	SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
+	SSL_CTX *ctx = bdd_ssl_ctx_skel();
 	if (ctx == NULL) {
 		return false;
 	}
-
-	SSL_CTX_set_ecdh_auto(ctx, 1);
-	SSL_CTX_set_cipher_list(ctx, "HIGH:!aNULL:!MD5");
-	SSL_CTX_set_max_proto_version(ctx, TLS1_2_VERSION);
-	SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
 
 	// up some ref counts
 	// free'ing an SSL_CTX will decrement those ref counts, and
