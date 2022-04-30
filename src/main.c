@@ -2,7 +2,6 @@
 #include "cp_pwd.h"
 #include "input_processor.h"
 #include "strtoint.h"
-#include "tls_put.h"
 
 #include <arpa/inet.h>
 #include <bddc/api.h>
@@ -87,8 +86,7 @@ int main(int argc, char *argv[], char *env[]) {
 	int sig_fd = -1;
 
 	// name_descriptions
-	if ((settings.name_descriptions = bdd_name_descriptions_create()) == NULL)
-	{
+	if ((settings.name_descriptions = bdd_name_descriptions_create()) == NULL) {
 		fputs("failed to allocate settings.name_descriptions\n", stderr);
 		goto main__clean_up;
 	}
@@ -188,40 +186,63 @@ main__arg_iter:;
 			arg += 1;
 		} else if (strcmp((*arg), "--tls-credentials") == 0 || strcmp((*arg), "-c") == 0) {
 			EXPECT_ARGS(3);
-			SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
-			if (SSL_CTX_use_certificate_file(ctx, arg[1], SSL_FILETYPE_PEM) != 1) {
-				fputs("invalid certificate file\n", stderr);
+			X509 *x509 = NULL;
+			EVP_PKEY *pkey = NULL;
+
+			// read x509 //
+
+			FILE *file = fopen(arg[1], "r");
+			if (file == NULL) {
+				fprintf(stderr, "couldn't access certificate file (%s)\n", arg[1]);
 				goto main__arg_creds_err;
 			}
-			struct bdd_cp_ctx cp_ctx = {
+
+			x509 = PEM_read_X509(file, NULL, NULL, NULL);
+			fclose(file);
+
+			if (x509 == NULL) {
+				fprintf(stderr, "invalid certificate file (%s)\n", arg[1]);
+				goto main__arg_creds_err;
+			}
+
+			// read private key //
+
+			struct cp_pwd_ctx cp_ctx = {
 				.success = false,
 				.password = getenv(arg[3]),
 			};
-			SSL_CTX_set_default_passwd_cb(ctx, bdd_cp_pwd);
-			SSL_CTX_set_default_passwd_cb_userdata(ctx, &(cp_ctx));
-			if (SSL_CTX_use_PrivateKey_file(ctx, arg[2], SSL_FILETYPE_PEM) != 1) {
-				fputs("invalid private key file\n", stderr);
+
+			file = fopen(arg[2], "r");
+			if (file == NULL) {
+				fprintf(stderr, "couldn't access private key file (%s)\n", arg[1]);
+				goto main__arg_creds_err;
+			}
+
+			pkey = PEM_read_PrivateKey(file, NULL, &(cp_pwd), &(cp_ctx));
+			fclose(file);
+
+			if (pkey == NULL) {
+				fprintf(stderr, "invalid private key file (%s)\n", arg[1]);
 				goto main__arg_creds_err;
 			}
 			if (!cp_ctx.success) {
 				fputs("the private key file must be encrypted\n", stderr);
 				goto main__arg_creds_err;
 			}
-			SSL_CTX_set_ecdh_auto(ctx, 1);
-			if (SSL_CTX_set_cipher_list(ctx, "HIGH:!aNULL:!MD5") != 1) {
-				fputs("failed to set the ssl_ctx's cipher list\n", stderr);
-				goto main__arg_creds_err;
-			}
-			SSL_CTX_set_max_proto_version(ctx, TLS1_2_VERSION);
-			SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
-			if (!tls_put(lh, &(ctx))) {
+
+			if (!bdd_name_descriptions_create_ssl_ctx(lh, &(x509), &(pkey))) {
 				fputs("seemingly invalid certificate file\n", stderr);
 				goto main__arg_creds_err;
 			}
+
 main__arg_creds_err:;
-			if (ctx != NULL) {
-				SSL_CTX_free(ctx);
+			if (x509 != NULL) {
+				X509_free(x509);
 			}
+			if (pkey != NULL) {
+				EVP_PKEY_free(pkey);
+			}
+
 			arg += 4;
 		} else if (strcmp((*arg), "--UNSAFE allocate buffer on stack") == 0) {
 			fputs("'--UNSAFE allocate buffer on stack' is unsafe and "
@@ -259,10 +280,8 @@ main__arg_creds_err:;
 		} else {
 			for (size_t idx = 0; idx < N_SERVICES; ++idx) {
 				if (services[idx].supported_arguments != NULL)
-					for (size_t pidx = 0; services[idx].supported_arguments[pidx]; ++pidx)
-					{
-						if (strcmp((*arg), services[idx].supported_arguments[pidx])
-						    == 0) {
+					for (size_t pidx = 0; services[idx].supported_arguments[pidx]; ++pidx) {
+						if (strcmp((*arg), services[idx].supported_arguments[pidx]) == 0) {
 							size_t n = 1;
 							while (arg[n] != NULL
 							       && (arg[n][0] != '-'

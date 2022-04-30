@@ -3,9 +3,9 @@
 #include <assert.h>
 #include <string.h>
 
-int bdd_cp_pwd(char *dest, int dest_sz, int rwflag, void *_ctx) {
+int cp_pwd(char *dest, int dest_sz, int rwflag, void *_ctx) {
 	assert(rwflag == 0);
-	struct bdd_cp_ctx *ctx = _ctx;
+	struct cp_pwd_ctx *ctx = _ctx;
 	ctx->success = false;
 	char *src = ctx->password;
 	if (src == NULL) {

@@ -2,7 +2,6 @@
 
 #include "core_settings.h"
 #include "cp_pwd.h"
-#include "tls_put.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -105,17 +104,17 @@ input_processor__process:;
 
 input_processor__matched:;
 	if (match == 0 /* TLS_PEM_LOAD */) {
-		SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
-		BIO *bio = NULL;
-		X509 *cert = NULL;
-		EVP_PKEY *key = NULL;
 		uint8_t e = 0;
-		if (ctx == NULL) {
+
+		BIO *bio = NULL;
+		X509 *x509 = NULL;
+		EVP_PKEY *pkey = NULL;
+
+		bio = BIO_new(BIO_s_mem());
+		if (bio == NULL) {
 			goto input_processor__tls_pem_load_err;
 		}
-		if ((bio = BIO_new(BIO_s_mem())) == NULL) {
-			goto input_processor__tls_pem_load_err;
-		}
+
 		for (;;) {
 			if (!buffered_read()) {
 				e |= 0b1;
@@ -128,13 +127,19 @@ input_processor__matched:;
 				goto input_processor__tls_pem_load_err;
 			}
 		}
-		if ((cert = PEM_read_bio_X509(bio, NULL, NULL, "")) == NULL) {
+
+		// deserialize the certificate
+		x509 = PEM_read_bio_X509(bio, NULL, NULL, "");
+		if (x509 == NULL) {
 			goto input_processor__tls_pem_load_err;
 		}
+
 		BIO_free(bio);
-		if ((bio = BIO_new(BIO_s_mem())) == NULL) {
+		bio = BIO_new(BIO_s_mem());
+		if (bio == NULL) {
 			goto input_processor__tls_pem_load_err;
 		}
+
 		for (;;) {
 			if (!buffered_read()) {
 				e |= 0b1;
@@ -147,10 +152,12 @@ input_processor__matched:;
 				goto input_processor__tls_pem_load_err;
 			}
 		}
+
+		// optionally, get the passphrase
 		if (!buffered_read()) {
 			br_ctx.byte = 1;
 		}
-		struct bdd_cp_ctx cp_ctx = {
+		struct cp_pwd_ctx cp_ctx = {
 			.success = false,
 			.password = NULL,
 		};
@@ -174,35 +181,28 @@ input_processor__matched:;
 				}
 			}
 		}
-		if ((key = PEM_read_bio_PrivateKey(bio, NULL, bdd_cp_pwd, &(cp_ctx))) == NULL) {
+
+		// deserialize the private key
+		pkey = PEM_read_bio_PrivateKey(bio, NULL, cp_pwd, &(cp_ctx));
+		if (pkey == NULL) {
 			goto input_processor__tls_pem_load_err;
 		}
-		if (SSL_CTX_use_certificate(ctx, cert) != 1 || SSL_CTX_use_PrivateKey(ctx, key) != 1) {
-			goto input_processor__tls_pem_load_err;
-		}
-		SSL_CTX_set_ecdh_auto(ctx, 1);
-		if (SSL_CTX_set_cipher_list(ctx, "HIGH:!aNULL:!MD5") != 1) {
-			goto input_processor__tls_pem_load_err;
-		}
-		SSL_CTX_set_max_proto_version(ctx, TLS1_2_VERSION);
-		SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
+
 		struct locked_hashmap *lh = hashmap_lock(settings.name_descriptions);
-		if (tls_put(lh, &(ctx))) {
+		if (bdd_name_descriptions_create_ssl_ctx(lh, &(x509), &(pkey))) {
 			e |= 0b10;
 		}
 		locked_hashmap_unlock(&(lh));
+
 input_processor__tls_pem_load_err:;
-		if (ctx != NULL) {
-			SSL_CTX_free(ctx);
-		}
 		if (bio != NULL) {
 			BIO_free(bio);
 		}
-		if (cert != NULL) {
-			X509_free(cert);
+		if (x509 != NULL) {
+			X509_free(x509);
 		}
-		if (key != NULL) {
-			EVP_PKEY_free(key);
+		if (pkey != NULL) {
+			EVP_PKEY_free(pkey);
 		}
 		if (e & 0b10) {
 			puts("added SSL_CTX");

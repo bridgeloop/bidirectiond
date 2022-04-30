@@ -64,12 +64,12 @@ bool general_service__connections_init(
 		return false;
 	}
 	bdd_io_id service;
-	struct general_service__associated *associated;
 	if (!bdd_create_io(connections, &(service), &(sock), info->tls_name)) {
 		close(sock);
 		return false;
 	}
-	if ((associated = malloc(sizeof(struct general_service__associated))) == NULL) {
+	struct general_service__associated *associated = malloc(sizeof(struct general_service__associated));
+	if (associated == NULL) {
 		// bdd-core will destroy the io
 		return false;
 	}
@@ -78,54 +78,59 @@ bool general_service__connections_init(
 	bdd_set_associated(connections, associated, free);
 	return true;
 }
-void general_service__service_info_destructor(void *hint) {
+void general_service__instance_info_destructor(void *hint) {
 	struct general_service__info *info = hint;
-	freeaddrinfo(info->addrinfo);
-	free(info);
+	if (info != NULL) {
+		if (info->addrinfo != NULL) {
+			freeaddrinfo(info->addrinfo);
+		}
+		free(info);
+	}
+	return;
 }
 static bool handle_s(
 	struct locked_hashmap *name_descriptions,
-	struct bdd_service *service,
+	const struct bdd_service *service,
 	const char *scope,
 	const char *addr,
 	const char *port,
 	bool use_tls
 ) {
 	struct general_service__info *info = malloc(sizeof(struct general_service__info));
+	if (info == NULL) {
+		return false;
+	}
+	info->addrinfo = NULL;
+	if (use_tls) {
+		info->tls_name = addr;
+	} else {
+		info->tls_name = NULL;
+	}
+
 	struct addrinfo hints = {
 		0,
 		.ai_family = AF_UNSPEC,
 		.ai_socktype = SOCK_STREAM,
 	};
 	struct addrinfo *res = NULL;
-	if (info == NULL) {
-		goto handle_s__err;
-	}
-	if (use_tls) {
-		info->tls_name = addr;
-	} else {
-		info->tls_name = NULL;
-	}
 	if (getaddrinfo(addr, port, &(hints), &(res)) != 0) {
 		goto handle_s__err;
 	}
 	info->addrinfo = res;
-	if (!bdd_name_descriptions_add_service_instance(name_descriptions, scope, strlen(scope), service, info)) {
+	res = NULL;
+
+	if (!bdd_name_descriptions_add_service_instance(name_descriptions, scope, strlen(scope), service, &(info))) {
 		goto handle_s__err;
 	}
 	return true;
+
 handle_s__err:;
-	if (info != NULL) {
-		free(info);
-	}
-	if (res != NULL) {
-		freeaddrinfo(res);
-	}
+	general_service__instance_info_destructor(info);
 	return false;
 }
 bool general_service__service_init(
 	struct locked_hashmap *name_descriptions,
-	struct bdd_service *service,
+	const struct bdd_service *service,
 	size_t argc,
 	const char **argv
 ) {

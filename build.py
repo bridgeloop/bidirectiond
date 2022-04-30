@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-semver = "0.1.5"
+semver = "wip-0.2.0"
 import sys, json, os, subprocess
 if sys.argv[0] != "./build.py":
     print("shit")
     exit(1)
 gcc_args = ["gcc", "-o", "bidirectiond"]
 services_c = "#include <bddc/api.h>\n"
-services = "struct bdd_service services[] = {"
+services = "const struct bdd_service services[] = {"
 names = [
 	["bool %s(struct bdd_connections *connections, void *buf, size_t buf_size);", "serve"],
 	["bool %s(struct bdd_connections *connections, const char *protocol_name, void *instance_info, bdd_io_id client_id, struct sockaddr client_sockaddr);", "connections_init"],
@@ -31,7 +31,7 @@ for dir, _, files in os.walk("src"):
                 else:
                     services += "NULL"
                 services += ","
-            services_c += f"""bool {p["instantiate"]}(struct locked_hashmap *name_descriptions, struct bdd_service *service, size_t n_arguments, const char **arguments);\n"""
+            services_c += f"""bool {p["instantiate"]}(struct locked_hashmap *name_descriptions, const struct bdd_service *service, size_t n_arguments, const char **arguments);\n"""
             supported_protocols = "NULL"
             if "supported_protocols" in p:
                 supported_protocols = "(const char *[]){ %s, NULL, }" % json.dumps(p["supported_protocols"])[1:-1]

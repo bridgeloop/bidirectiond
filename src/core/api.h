@@ -60,7 +60,7 @@ struct bdd_service {
 	void (*instance_info_destructor)(void *instance_info);
 	bool (*instantiate
 	)(struct locked_hashmap *name_descriptions,
-	  struct bdd_service *service,
+	  const struct bdd_service *service,
 	  size_t n_arguments,
 	  const char **arguments);
 	const char **supported_protocols;
@@ -111,15 +111,14 @@ void bdd_destroy(struct bdd_instance *instance);
 bool bdd_name_descriptions_add_service_instance(
 	struct locked_hashmap *name_descriptions,
 	const char *scope,
-	size_t scope_len,
+	size_t scope_sz,
 	const struct bdd_service *service,
-	void *instance_info
+	void **instance_info
 );
-bool bdd_name_descriptions_set_ssl_ctx(
+bool bdd_name_descriptions_create_ssl_ctx(
 	struct locked_hashmap *name_descriptions,
-	const char *scope,
-	size_t scope_len,
-	SSL_CTX *ssl_ctx
+	X509 **x509_ref,
+	EVP_PKEY **pkey_ref
 );
 struct hashmap *bdd_name_descriptions_create(void);
 

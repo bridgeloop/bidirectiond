@@ -10,7 +10,7 @@
 // shout-out to openssl for this shit
 // like fr what are these apis
 int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
-	char *extension;
+	const unsigned char *extension;
 	size_t extension_sz;
 	if (SSL_client_hello_get0_ext(client_ssl, TLSEXT_TYPE_server_name, &(extension), &(extension_sz)) == 0) {
 		return SSL_CLIENT_HELLO_ERROR;
@@ -18,26 +18,21 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 	if (extension_sz <= 4) {
 		return SSL_CLIENT_HELLO_ERROR;
 	}
-	if (extension[2] != TLSEXT_NAMETYPE_host_name) {
+	if (unlikely(extension[2] != TLSEXT_NAMETYPE_host_name)) {
 		return SSL_CLIENT_HELLO_ERROR;
 	}
-	
+
 	unsigned short int name_sz = ntohs(*(unsigned short int *)(&(extension[3])));
-	if (name_sz == 0) {
-		return SSL_CLIENT_HELLO_ERROR;
+	const unsigned char *name = (char *)&(extension[5]);
+
+	if (name_sz >= 1 && name[name_sz - 1] == '.') {
+		name_sz -= 1;
 	}
-	
-	char *name = (char *)&(extension[5]);
-	
-	if (name[name_sz - 1] == '.') {
-		if ((name_sz -= 1) == 0) {
-			return SSL_CLIENT_HELLO_ERROR;
-		}
-	}
-	
+
 	uint8_t found_req = 0;
 	for (size_t idx = 0;;) {
-		struct bdd_name_description *name_description = locked_hashmap_get_wl(ctx->locked_name_descriptions, &(name[idx]), name_sz);
+		struct bdd_name_description *name_description
+			= locked_hashmap_get_wl(ctx->locked_name_descriptions, (char *)&(name[idx]), name_sz);
 		if (name_description != NULL) {
 			if (!(found_req & 0b01) && name_description->ssl_ctx != NULL) {
 				found_req |= 0b01;
@@ -51,26 +46,14 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 				break;
 			}
 		}
-		bool fwc = name[idx] == '*';
+		if (name_sz == 0) {
+			*alert = SSL_AD_UNRECOGNIZED_NAME;
+			return SSL_CLIENT_HELLO_ERROR;
+		}
 		do {
 			idx += 1;
 			name_sz -= 1;
-			if (name_sz == 0) {
-				if (fwc) {
-					return SSL_CLIENT_HELLO_ERROR;
-				}
-				goto place_wc;
-			}
-			if (name[idx] == '.') {
-				if (!fwc) {
-place_wc:;
-					name_sz += 1;
-					name[--idx] = '*'; // is this safe? fuck it i aint a bitch
-					break;
-				}
-				fwc = false;
-			}
-		} while (true);
+		} while (name_sz != 0 && name[idx] != '.');
 	}
 	return SSL_CLIENT_HELLO_SUCCESS;
 }
