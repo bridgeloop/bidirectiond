@@ -203,12 +203,13 @@ bool bdd_name_descriptions_create_ssl_ctx(
 			}
 			ASN1_IA5STRING *asn1_str = entry->d.dNSName;
 			int data_length = asn1_str->length;
-			if (bdd_name_descriptions_set_ssl_ctx(
-				    name_descriptions,
-				    (char *)asn1_str->data,
-				    data_length,
-				    ctx
-			    )) {
+			bool s = bdd_name_descriptions_set_ssl_ctx(
+				name_descriptions,
+				(char *)asn1_str->data,
+				data_length,
+				ctx
+			);
+			if (s) {
 				if (should_up_rc) {
 					SSL_CTX_up_ref(ctx);
 				} else {
@@ -239,12 +240,13 @@ bool bdd_name_descriptions_create_ssl_ctx(
 					continue;
 				}
 				int data_length = asn1_str->length;
-				if (bdd_name_descriptions_set_ssl_ctx(
-					    name_descriptions,
-					    (char *)asn1_str->data,
-					    data_length,
-					    ctx
-				    )) {
+				bool s = bdd_name_descriptions_set_ssl_ctx(
+					name_descriptions,
+					(char *)asn1_str->data,
+					data_length,
+					ctx
+				);
+				if (s) {
 					if (should_up_rc) {
 						SSL_CTX_up_ref(ctx);
 					} else {
