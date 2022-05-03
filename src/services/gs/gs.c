@@ -14,7 +14,7 @@ static bool serve(struct bdd_connections *connections, void *buf, size_t buf_siz
 		if ((n = bdd_read(connections, from, buf, buf_size)) <= 0) {
 			return false;
 		}
-		if (bdd_write(connections, to, buf, n) <= 0) {
+		if (bdd_write_whole(connections, to, buf, n) <= 0) {
 			return false;
 		}
 	} while ((bdd_poll(connections, from) & POLLIN));

@@ -41,14 +41,15 @@ for dir, _, files in os.walk("src"):
 				.arguments_help = (char *)%s,
 				.n_max_io = %i,
 				.supported_protocols = %s,
-			}""" % (p["instantiate"], json.dumps(p["supported_arguments"])[1:-1], json.dumps(p["arguments_help"]), p["n_max_io"], supported_protocols)
+			},""" % (p["instantiate"], json.dumps(p["supported_arguments"])[1:-1], json.dumps(p["arguments_help"]), p["n_max_io"], supported_protocols)
             fd.close()
 services += "};"
 services_c += services
 fd = open("src/_services.c", "w")
 fd.write(services_c)
 fd.close()
-gcc_args.append("src/_services.c")
+if not("src/_services.c" in gcc_args):
+	gcc_args.insert(1, "src/_services.c")
 sysname = os.uname().sysname
 gcc_args.extend(["-lpthread", "-lssl", "-lcrypto", "-Iinc", "-DN_SERVICES=" + str(np), "-DPROG_SEMVER=" + json.dumps(semver), "-funsigned-char"] + sys.argv[1:])
 subprocess.call(gcc_args)

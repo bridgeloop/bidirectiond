@@ -22,7 +22,11 @@ __attribute__((warn_unused_result)) int bdd_poll(struct bdd_connections *connect
 	}
 	return pollfd.revents;
 }
-__attribute__((warn_unused_result)) ssize_t bdd_read_internal(struct bdd_io *io, void *buf, ssize_t sz) {
+__attribute__((warn_unused_result)) ssize_t bdd_read_internal(
+	struct bdd_io *io,
+	void *buf,
+	ssize_t sz
+) {
 	if (sz <= 0) {
 		return 0;
 	}
@@ -36,15 +40,23 @@ __attribute__((warn_unused_result)) ssize_t bdd_read_internal(struct bdd_io *io,
 	} while (r < 0 && errno == EINTR);
 	return r;
 }
-__attribute__((warn_unused_result)) ssize_t
-bdd_read(struct bdd_connections *connections, bdd_io_id io_id, void *buf, ssize_t sz) {
+__attribute__((warn_unused_result)) ssize_t bdd_read(
+	struct bdd_connections *connections,
+	bdd_io_id io_id,
+	void *buf,
+	ssize_t sz
+) {
 	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
 	struct bdd_io *io = &(connections->io[io_id]);
 	assert(io->fd != -1);
 	return bdd_read_internal(io, buf, sz);
 }
-__attribute__((warn_unused_result)) ssize_t
-bdd_read_whole(struct bdd_connections *connections, bdd_io_id io_id, void *buf, ssize_t sz) {
+__attribute__((warn_unused_result)) ssize_t bdd_read_whole(
+	struct bdd_connections *connections,
+	bdd_io_id io_id,
+	void *buf,
+	ssize_t sz
+) {
 	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
 	struct bdd_io *io = &(connections->io[io_id]);
 	assert(io->fd != -1);
@@ -61,7 +73,11 @@ bdd_read_whole(struct bdd_connections *connections, bdd_io_id io_id, void *buf, 
 	return n;
 }
 
-__attribute__((warn_unused_result)) ssize_t bdd_write_internal(struct bdd_io *io, void *buf, ssize_t sz) {
+__attribute__((warn_unused_result)) ssize_t bdd_write_internal(
+	struct bdd_io *io,
+	void *buf,
+	ssize_t sz
+) {
 	if (sz <= 0) {
 		return 0;
 	}
@@ -75,15 +91,23 @@ __attribute__((warn_unused_result)) ssize_t bdd_write_internal(struct bdd_io *io
 	} while (r < 0 && errno == EINTR);
 	return r;
 }
-__attribute__((warn_unused_result)) ssize_t
-bdd_write(struct bdd_connections *connections, bdd_io_id io_id, void *buf, ssize_t sz) {
+__attribute__((warn_unused_result)) ssize_t bdd_write(
+	struct bdd_connections *connections,
+	bdd_io_id io_id,
+	void *buf,
+	ssize_t sz
+) {
 	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
 	struct bdd_io *io = &(connections->io[io_id]);
 	assert(io->fd != -1);
 	return bdd_write_internal(io, buf, sz);
 }
-__attribute__((warn_unused_result)) ssize_t
-bdd_write_whole(struct bdd_connections *connections, bdd_io_id io_id, void *buf, ssize_t sz) {
+__attribute__((warn_unused_result)) ssize_t bdd_write_whole(
+	struct bdd_connections *connections,
+	bdd_io_id io_id,
+	void *buf,
+	ssize_t sz
+) {
 	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
 	struct bdd_io *io = &(connections->io[io_id]);
 	assert(io->fd != -1);
@@ -100,7 +124,11 @@ bdd_write_whole(struct bdd_connections *connections, bdd_io_id io_id, void *buf,
 	return n;
 }
 
-void bdd_set_associated(struct bdd_connections *connections, void *data, void (*destructor)(void *)) {
+void bdd_set_associated(
+	struct bdd_connections *connections,
+	void *data,
+	void (*destructor)(void *)
+) {
 	assert(connections != NULL);
 	if (connections->associated.destructor != NULL) {
 		connections->associated.destructor(connections->associated.data);
@@ -115,7 +143,12 @@ void bdd_set_associated(struct bdd_connections *connections, void *data, void (*
 	return;
 }
 
-bool bdd_create_io(struct bdd_connections *connections, bdd_io_id *io_id, int *fd, const char *ssl_name) {
+bool bdd_create_io(
+	struct bdd_connections *connections,
+	bdd_io_id *io_id,
+	int *fd,
+	const char *ssl_name
+) {
 	// todo: take either an fd pointer or an ssl struct pointer pointer(?)
 
 	assert(connections != NULL && io_id != NULL);
