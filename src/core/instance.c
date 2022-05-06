@@ -66,14 +66,15 @@ struct bdd_instance *bdd_instance_alloc(void) {
 }
 
 struct bdd_instance *bdd_go(struct bdd_settings settings) {
-	if (settings.sv_socket < 0 || settings.buf_sz == 0 || settings.n_connections < 0 || settings.n_epoll_oevents < 0
-	    || settings.name_descriptions == NULL
-	    || ((settings.n_connections == 0 || settings.n_worker_threads == 0 || settings.n_epoll_oevents == 0)
-		&& (settings.n_connections != 0 || settings.n_worker_threads != 0 || settings.n_epoll_oevents != 0)))
+	if (settings.sv_socket < 0 ||
+		settings.buf_sz <= 0 ||
+		settings.n_connections <= 0 ||
+		settings.n_epoll_oevents <= 0 ||
+		settings.name_descriptions == NULL ||
+		settings.n_worker_threads <= 0)
 	{
 		return NULL;
 	}
-	bool uses_internal_services = settings.n_connections != 0;
 
 	struct bdd_instance *instance = bdd_instance_alloc();
 	if (instance == NULL) {
@@ -109,15 +110,13 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 
 	// sigmask
 	instance->sigmask = settings.sigmask;
-	if (uses_internal_services) {
-		// epoll
-		if ((instance->epoll_fd = epoll_create1(0)) < 0) {
-			goto bdd_go__err;
-		}
-		instance->n_epoll_oevents = settings.n_epoll_oevents;
-		if ((instance->epoll_oevents = malloc(sizeof(struct epoll_event) * settings.n_epoll_oevents)) == NULL) {
-			goto bdd_go__err;
-		}
+	// epoll
+	if ((instance->epoll_fd = epoll_create1(0)) < 0) {
+		goto bdd_go__err;
+	}
+	instance->n_epoll_oevents = settings.n_epoll_oevents;
+	if ((instance->epoll_oevents = malloc(sizeof(struct epoll_event) * settings.n_epoll_oevents)) == NULL) {
+		goto bdd_go__err;
 	}
 	// name_descriptions
 	instance->name_descriptions = settings.name_descriptions;
@@ -126,43 +125,41 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 	instance->client_timeout.tv_usec = (settings.client_timeout % 1000) * 1000;
 	// server socket
 	instance->sv_socket = settings.sv_socket;
-	if (uses_internal_services) {
-		// connections
-		instance->connections.n_connections = settings.n_connections;
-		if ((instance->connections.connections = malloc(
-			     (settings.n_connections * sizeof(struct bdd_connections))
-			     + (settings.n_connections * sizeof(int))
-		     ))
-		    == NULL)
-		{
-			goto bdd_go__err;
-		}
-		// available stack
-		instance->connections.available = (void *)&(instance->connections.connections[settings.n_connections]);
-		instance->connections.available_idx = 0;
-		if (pthread_mutex_init(&(instance->connections.available_mutex), NULL) != 0
-		    || pthread_cond_init(&(instance->connections.available_cond), NULL) != 0)
-		{
-			goto bdd_go__err;
-		}
-		// init connections, and the available stack
-		for (int *idx = &(instance->connections.connections_idx); (*idx) < settings.n_connections; ++(*idx)) {
-			if (pthread_mutex_init(&(instance->connections.connections[(*idx)].working_mutex), NULL) != 0) {
-				goto bdd_go__err;
-			}
-			instance->connections.connections[(*idx)].associated.data = NULL;
-			instance->connections.connections[(*idx)].associated.destructor = NULL;
-			instance->connections.connections[(*idx)].io = NULL;
-			instance->connections.connections[(*idx)].working = false;
-			instance->connections.connections[(*idx)].broken = false;
-			instance->connections.available[(*idx)] = (*idx);
-		}
-		// linked connections
-		if (pthread_mutex_init(&(instance->linked_connections.mutex), NULL) != 0) {
-			goto bdd_go__err;
-		}
-		instance->linked_connections.head = NULL;
+	// connections
+	instance->connections.n_connections = settings.n_connections;
+	if ((instance->connections.connections = malloc(
+		     (settings.n_connections * sizeof(struct bdd_connections))
+		     + (settings.n_connections * sizeof(int))
+	     ))
+	    == NULL)
+	{
+		goto bdd_go__err;
 	}
+	// available stack
+	instance->connections.available = (void *)&(instance->connections.connections[settings.n_connections]);
+	instance->connections.available_idx = 0;
+	if (pthread_mutex_init(&(instance->connections.available_mutex), NULL) != 0
+	    || pthread_cond_init(&(instance->connections.available_cond), NULL) != 0)
+	{
+		goto bdd_go__err;
+	}
+	// init connections, and the available stack
+	for (int *idx = &(instance->connections.connections_idx); (*idx) < settings.n_connections; ++(*idx)) {
+		if (pthread_mutex_init(&(instance->connections.connections[(*idx)].working_mutex), NULL) != 0) {
+			goto bdd_go__err;
+		}
+		instance->connections.connections[(*idx)].associated.data = NULL;
+		instance->connections.connections[(*idx)].associated.destructor = NULL;
+		instance->connections.connections[(*idx)].io = NULL;
+		instance->connections.connections[(*idx)].working = false;
+		instance->connections.connections[(*idx)].broken = false;
+		instance->connections.available[(*idx)] = (*idx);
+	}
+	// linked connections
+	if (pthread_mutex_init(&(instance->linked_connections.mutex), NULL) != 0) {
+		goto bdd_go__err;
+	}
+	instance->linked_connections.head = NULL;
 	// accept
 	if ((instance->accept.eventfd = eventfd(0, EFD_NONBLOCK)) < 0) {
 		goto bdd_go__err;
@@ -175,34 +172,32 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		goto bdd_go__err;
 	}
 	SSL_CTX_set_client_hello_cb(instance->accept.ssl_ctx, bdd_hello_cb, &(instance->accept.accept_ctx));
-	if (uses_internal_services) {
-		// serve
-		if ((instance->serve_eventfd = eventfd(0, EFD_NONBLOCK)) < 0) {
-			goto bdd_go__err;
-		}
-		struct epoll_event event = {
-		    .events = EPOLLIN,
-		    .data = {
-			    .ptr = NULL,
-			},
-		};
-		if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, instance->serve_eventfd, &(event)) != 0) {
-			goto bdd_go__err;
-		}
-		// workers
-		if (!settings.use_work_queues) {
-			if ((instance->workers.available_stack.ids
-			     = malloc(settings.n_worker_threads * sizeof(unsigned short int)))
-			    == NULL) {
-				goto bdd_go__err;
-			}
-			instance->workers.available_stack.idx = settings.n_worker_threads;
-		}
-		if ((instance->workers.buf = malloc(settings.buf_sz * settings.n_worker_threads)) == NULL) {
-			goto bdd_go__err;
-		}
-		instance->workers.buf_sz_per_worker = settings.buf_sz;
+	// serve
+	if ((instance->serve_eventfd = eventfd(0, EFD_NONBLOCK)) < 0) {
+		goto bdd_go__err;
 	}
+	struct epoll_event event = {
+	    .events = EPOLLIN,
+	    .data = {
+		    .ptr = NULL,
+		},
+	};
+	if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, instance->serve_eventfd, &(event)) != 0) {
+		goto bdd_go__err;
+	}
+	// workers
+	if (!settings.use_work_queues) {
+		if ((instance->workers.available_stack.ids
+		     = malloc(settings.n_worker_threads * sizeof(unsigned short int)))
+		    == NULL) {
+			goto bdd_go__err;
+		}
+		instance->workers.available_stack.idx = settings.n_worker_threads;
+	}
+	if ((instance->workers.buf = malloc(settings.buf_sz * settings.n_worker_threads)) == NULL) {
+		goto bdd_go__err;
+	}
+	instance->workers.buf_sz_per_worker = settings.buf_sz;
 	{
 		pthread_mutex_lock(&(instance->n_running_threads_mutex));
 		bool e = false;
@@ -212,49 +207,48 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		} else {
 			instance->n_running_threads += 1;
 		}
-		if (uses_internal_services) {
-			if (!e) {
-				if (pthread_create(&(pthid), NULL, (void *(*)(void *))(&(bdd_serve)), instance) != 0) {
-					e = true;
-				} else {
-					instance->n_running_threads += 1;
-				}
+		if (!e) {
+			if (pthread_create(&(pthid), NULL, (void *(*)(void *))(&(bdd_serve)), instance) != 0) {
+				e = true;
+			} else {
+				instance->n_running_threads += 1;
 			}
-			struct bdd_worker *workers;
-			if (!e && (workers = malloc(sizeof(struct bdd_worker) * settings.n_worker_threads)) == NULL) {
+		}
+		struct bdd_worker *workers;
+		if (!e && (workers = malloc(sizeof(struct bdd_worker) * settings.n_worker_threads)) == NULL) {
+			e = true;
+		}
+		instance->workers.info = workers;
+		for (
+			unsigned short int *idx = &(instance->workers.n_workers);
+			!e && (*idx) < settings.n_worker_threads;
+			++(*idx)
+		) {
+			(*((struct bdd_instance **)&(workers[(*idx)].instance))) = instance;
+			if (pthread_mutex_init(&(workers[(*idx)].work_mutex), NULL) != 0) {
 				e = true;
 			}
-			instance->workers.info = workers;
-			for (unsigned short int *idx = &(instance->workers.n_workers);
-			     !e && (*idx) < settings.n_worker_threads;
-			     ++(*idx)) {
-				(*((struct bdd_instance **)&(workers[(*idx)].instance))) = instance;
-				if (pthread_mutex_init(&(workers[(*idx)].work_mutex), NULL) != 0) {
-					e = true;
-				}
-				if (pthread_cond_init(&(workers[(*idx)].work_cond), NULL) != 0) {
-					pthread_mutex_destroy(&(workers[(*idx)].work_mutex));
-					e = true;
-				}
-				workers[(*idx)].id = (*idx);
-				workers[(*idx)].connections = NULL;
-				workers[(*idx)].connections_appender = NULL;
-				if (pthread_create(
-					    &(pthid),
-					    NULL,
-					    (void *(*)(void *))(&(bdd_worker)),
-					    &(workers[(*idx)])
-				    )
-				    != 0) {
-					e = true;
-				} else {
-					instance->n_running_threads += 1;
-				}
+			if (pthread_cond_init(&(workers[(*idx)].work_cond), NULL) != 0) {
+				pthread_mutex_destroy(&(workers[(*idx)].work_mutex));
+				e = true;
 			}
-			if (e) {
-				pthread_mutex_unlock(&(instance->n_running_threads_mutex));
-				goto bdd_go__err;
+			workers[(*idx)].id = (*idx);
+			workers[(*idx)].connections = NULL;
+			workers[(*idx)].connections_appender = NULL;
+			if (pthread_create(
+				&(pthid),
+				NULL,
+				(void *(*)(void *))(&(bdd_worker)),
+				&(workers[(*idx)])
+			) != 0) {
+				e = true;
+			} else {
+				instance->n_running_threads += 1;
 			}
+		}
+		if (e) {
+			pthread_mutex_unlock(&(instance->n_running_threads_mutex));
+			goto bdd_go__err;
 		}
 		pthread_mutex_unlock(&(instance->n_running_threads_mutex));
 	}

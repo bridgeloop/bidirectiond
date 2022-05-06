@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <netdb.h>
 
 #ifndef POLLRDHUP
 #define POLLRDHUP 0x400
@@ -23,10 +24,34 @@ enum bdd_name_description_service_type {
 } __attribute__((packed));
 typedef unsigned short int bdd_io_id;
 
+#define BDD_IO_STATE_UNUSED 0
+#define BDD_IO_STATE_CREATED 1
+#define BDD_IO_STATE_ESTABLISHED 2
+#define BDD_IO_STATE_BROKEN 3
+
+#define BDD_IO_CONNECT_STATE_WANTS_CALL 0
+#define BDD_IO_CONNECT_STATE_WANTS_CALL_ONCE_WRITABLE 1
+#define BDD_IO_CONNECT_STATE_WANTS_CALL_ONCE_READABLE 2
+#define BDD_IO_CONNECT_STATE_DO_NOT_CALL 3
+
+struct bdd_poll_io {
+	bdd_io_id io_id;
+	short int events;
+	short int revents;
+};
+
 struct bdd_instance;
 struct bdd_io {
-	int fd;
-	SSL *ssl;
+	uint8_t
+		state : 3,
+		connect_stage : 1, // internal
+		connect_state : 2,
+		ssl : 1,
+		tcp : 1;
+	union {
+		int fd;
+		SSL *ssl;
+	} io;
 };
 
 struct bdd_connections_associated {
@@ -89,17 +114,13 @@ struct bdd_settings {
 	sigset_t sigmask;
 };
 
-__attribute__((warn_unused_result)) int bdd_poll(
+int bdd_poll(
 	struct bdd_connections *connections,
-	bdd_io_id io_id
+	struct bdd_poll_io *io_ids,
+	bdd_io_id n_io_ids,
+	int timeout
 );
 __attribute__((warn_unused_result)) ssize_t bdd_read(
-	struct bdd_connections *connections,
-	bdd_io_id io_id,
-	void *buf,
-	ssize_t sz
-);
-__attribute__((warn_unused_result)) ssize_t bdd_read_whole(
 	struct bdd_connections *connections,
 	bdd_io_id io_id,
 	void *buf,
@@ -111,17 +132,22 @@ __attribute__((warn_unused_result)) ssize_t bdd_write(
 	void *buf,
 	ssize_t sz
 );
-__attribute__((warn_unused_result)) ssize_t bdd_write_whole(
-	struct bdd_connections *connections,
-	bdd_io_id io_id, void *buf,
-	ssize_t sz
-);
 
-bool bdd_create_io(
+bool bdd_io_create(
 	struct bdd_connections *connections,
 	bdd_io_id *io_id,
+	int domain,
+	int type,
+	int protocol
 );
-void bdd_remove_io(struct bdd_connections *connections, bdd_io_id io_id);
+bool bdd_io_prep_ssl(struct bdd_connections *connections, bdd_io_id io_id, char *ssl_name);
+void bdd_io_remove(struct bdd_connections *connections, bdd_io_id io_id);
+enum bdd_io_connect_status {
+	bdd_io_connect_broken,
+	bdd_io_connect_connecting,
+	bdd_io_connect_established,
+};
+enum bdd_io_connect_status bdd_io_connect(struct bdd_connections *connections, bdd_io_id io_io, struct addrinfo *addrinfo);
 void bdd_set_associated(
 	struct bdd_connections *connections,
 	void *data,

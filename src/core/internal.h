@@ -10,6 +10,9 @@ extern SSL_CTX *BDD_GLOBAL_CL_SSL_CTX;
 void bdd_mutex_preinit(pthread_mutex_t *dest);
 void bdd_cond_preinit(pthread_cond_t *dest);
 
+#define BDD_IO_CONNECT_STAGE_CONNECT 0
+#define BDD_IO_CONNECT_STAGE_SSL_CONNECT 1
+
 // my justification for the following shit is: bdd's memory usage is already
 // kinda pushing it, so i'd like to save some heap space in exchange for a few
 // extra instructions

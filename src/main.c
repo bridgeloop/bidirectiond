@@ -88,7 +88,7 @@ int main(int argc, char *argv[], char *env[]) {
 	// name_descriptions
 	if ((settings.name_descriptions = bdd_name_descriptions_create()) == NULL) {
 		fputs("failed to allocate settings.name_descriptions\n", stderr);
-		goto main__clean_up;
+		goto clean_up;
 	}
 	// args
 	char **arg = &(argv[1]);
@@ -331,7 +331,7 @@ main__arg_fuck:;
 				}
 			}
 			locked_hashmap_unlock(&(lh));
-			goto main__clean_up;
+			goto clean_up;
 		}
 	}
 	locked_hashmap_unlock(&(lh));
@@ -351,12 +351,18 @@ main__arg_fuck:;
 	size_t sv_addr_sz = 0;
 	if (disable_ipv6) {
 		settings.sv_socket = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+		if (settings.sv_socket < 0) {
+			goto clean_up;
+		}
 		sv_addr_sz = sizeof(struct sockaddr_in);
 		sv_addr.inet4.sin_family = AF_INET;
 		sv_addr.inet4.sin_addr.s_addr = INADDR_ANY;
 		sv_addr.inet4.sin_port = htons(port);
 	} else {
 		settings.sv_socket = socket(AF_INET6, SOCK_STREAM | SOCK_NONBLOCK, 0);
+		if (settings.sv_socket < 0) {
+			goto clean_up;
+		}
 		sv_addr_sz = sizeof(struct sockaddr_in6);
 		sv_addr.inet6.sin6_family = AF_INET6;
 		sv_addr.inet6.sin6_addr = in6addr_any;
@@ -367,11 +373,11 @@ main__arg_fuck:;
 	setsockopt(settings.sv_socket, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &(opt), sizeof(opt));
 	if (bind(settings.sv_socket, (struct sockaddr *)&(sv_addr), sv_addr_sz) < 0) {
 		fprintf(stderr, "failed to bind sv_socket! errno: %i\n", errno);
-		goto main__clean_up;
+		goto clean_up;
 	}
 	if (listen(settings.sv_socket, backlog) < 0) {
 		fprintf(stderr, "failed to listen on sv_socket! errno: %i\n", errno);
-		goto main__clean_up;
+		goto clean_up;
 	}
 
 	setgid(ngid);
@@ -408,7 +414,7 @@ main__arg_fuck:;
 	settings.sigmask = sigset;
 	pthread_sigmask(SIG_BLOCK, &(sigset), NULL);
 	if ((sig_fd = signalfd(-1, &(sigset), 0)) < 0) {
-		goto main__clean_up;
+		goto clean_up;
 	}
 	struct pollfd pollfds[2] = {
 		{
@@ -425,12 +431,12 @@ main__arg_fuck:;
 	// serve
 	bdd_instance = bdd_go(settings);
 	if (bdd_instance == NULL) {
-		goto main__clean_up;
+		goto clean_up;
 	}
 	if (big_alloc_sz > 0) {
 		void *big_alloc = malloc(big_alloc_sz);
 		if (big_alloc == NULL) {
-			goto main__clean_up;
+			goto clean_up;
 		}
 		free(big_alloc);
 	}
@@ -441,17 +447,17 @@ main__arg_fuck:;
 			if (errno
 			    != EINTR /* e.g., SIGUSR1 could be sent to bidirectiond, and then handled by this thread */)
 			{
-				goto main__clean_up;
+				goto clean_up;
 			}
 		}
 		if (pollfds[0].revents & POLLIN) {
 			if (read(sig_fd, &(sig), sizeof(struct signalfd_siginfo)) != sizeof(struct signalfd_siginfo)) {
-				goto main__clean_up;
+				goto clean_up;
 			}
 			switch (sig.ssi_signo) {
 				case (SIGINT):
 				case (SIGTERM): {
-					goto main__clean_up;
+					goto clean_up;
 				}
 				default: {
 					assert(false);
@@ -464,7 +470,7 @@ main__arg_fuck:;
 		}
 	}
 
-main__clean_up:;
+clean_up:;
 	if (bdd_instance != NULL) {
 		bdd_stop(bdd_instance);
 		bdd_wait(bdd_instance);
@@ -495,7 +501,7 @@ main__clean_up:;
 	CONF_modules_free();
 	CONF_modules_unload(1);
 	COMP_zlib_cleanup();
-	ERR_free_strings(); // TODO: is that needed?
+	ERR_free_strings();
 	EVP_cleanup();
 	CRYPTO_cleanup_all_ex_data();
 	return 0;

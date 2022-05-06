@@ -7,35 +7,75 @@
 
 #define INST_CONNECTIONS (instance->connections)
 
-__attribute__((warn_unused_result)) int bdd_poll(struct bdd_connections *connections, bdd_io_id io_id) {
-	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
-	struct bdd_io *io = &(connections->io[io_id]);
-	assert(io->fd != -1);
-	struct pollfd pollfd = {
-		.fd = io->fd,
-		.events = POLLIN | POLLOUT | POLLRDHUP,
-		.revents = 0,
-	};
-	poll(&(pollfd), 1, 0);
-	if (io->ssl != NULL && SSL_has_pending(io->ssl)) {
-		pollfd.revents |= POLLIN;
+int bdd_poll(struct bdd_connections *connections, struct bdd_poll_io *io_ids, bdd_io_id n_io_ids, int timeout) {
+	if (connections == NULL || io_ids == NULL || n_io_ids == 0 ||
+		n_io_ids > 0xff /* arbitrary limit; the array can technically be SIGNED_INT_MAX entries long, meaning that its greatest index may be SIGNED_INT_MAX - 1 */)
+	{
+		fputs("programming error: bdd_poll called with invalid arguments\n", stderr);
+		assert(false);
+		return false;
 	}
-	return pollfd.revents;
+	struct pollfd pollfds[n_io_ids]; // may overflow the stack if n_poll_io_ids is huge
+	for (
+		bdd_io_id idx = 0;
+		idx < n_io_ids;
+		++idx
+	) {
+		bdd_io_id io_id = io_ids[idx].io_id;
+		if (io_id < 0 || io_id >= bdd_connections_n_max_io(connections)) {
+			fputs("programming error: bdd_poll called with an out-of-bounds io_id\n", stderr);
+			assert(false);
+			return -1;
+		}
+		struct bdd_io *io = &(connections->io[io_id]);
+		if (io->ssl) {
+			pollfds[idx].fd = SSL_get_fd(io->io.ssl);
+			if (SSL_has_pending(io->io.ssl)) {
+				timeout = 0;
+			}
+		} else {
+			pollfds[idx].fd = io->io.fd;
+		}
+		pollfds[idx].events = io_ids[idx].events;
+		pollfds[idx].revents = 0;
+	}
+	int n_revents = poll(pollfds, n_io_ids, timeout);
+	if (n_revents < 0) {
+		return n_revents;
+	}
+	for (
+		bdd_io_id idx = 0;
+		idx < n_io_ids;
+		++idx
+	) {
+		bdd_io_id io_id = io_ids[idx].io_id;
+		struct bdd_io *io = &(connections->io[io_id]);
+		io_ids[idx].revents = pollfds[idx].revents;
+		if (io->ssl) {
+			if (SSL_has_pending(io->io.ssl)) {
+				io_ids[idx].revents |= POLLIN;
+				if (pollfds[idx].revents == 0) {
+					n_revents += 1;
+				}
+			}
+		}
+	}
+	return n_revents;
 }
 __attribute__((warn_unused_result)) ssize_t bdd_read_internal(
 	struct bdd_io *io,
 	void *buf,
 	ssize_t sz
 ) {
-	if (sz <= 0) {
+	/*if (sz <= 0) {
 		return 0;
-	}
+	}*/
 	ssize_t r = 0;
 	do {
-		if (io->ssl != NULL) {
-			r = SSL_read(io->ssl, buf, sz);
+		if (io->ssl) {
+			r = SSL_read(io->io.ssl, buf, sz);
 		} else {
-			r = recv(io->fd, buf, sz, 0);
+			r = recv(io->io.fd, buf, sz, 0);
 		}
 	} while (r < 0 && errno == EINTR);
 	return r;
@@ -46,31 +86,19 @@ __attribute__((warn_unused_result)) ssize_t bdd_read(
 	void *buf,
 	ssize_t sz
 ) {
-	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
-	struct bdd_io *io = &(connections->io[io_id]);
-	assert(io->fd != -1);
-	return bdd_read_internal(io, buf, sz);
-}
-__attribute__((warn_unused_result)) ssize_t bdd_read_whole(
-	struct bdd_connections *connections,
-	bdd_io_id io_id,
-	void *buf,
-	ssize_t sz
-) {
-	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
-	struct bdd_io *io = &(connections->io[io_id]);
-	assert(io->fd != -1);
-	ssize_t n = 0;
-	while (n < sz) {
-		ssize_t r = bdd_read_internal(io, buf + n, sz - n);
-		if (r < 0) {
-			return r;
-		} else if (r == 0) {
-			return n;
-		}
-		n += r;
+	if (connections == NULL || io_id < 0 || io_id >= bdd_connections_n_max_io(connections) || buf == NULL || sz <= 0) {
+		fputs("programming error: bdd_read called with invalid arguments\n", stderr);
+		assert(false);
+		return false;
 	}
-	return n;
+	struct bdd_io *io = &(connections->io[io_id]);
+	if (io->state != BDD_IO_STATE_ESTABLISHED) {
+		fputs("programming error: bdd_read called with an io_id which is in a state not equal to BDD_IO_STATE_ESTABLISHED\n", stderr);
+		assert(false);
+		io->state = BDD_IO_STATE_BROKEN;
+		return false;
+	}
+	return bdd_read_internal(io, buf, sz);
 }
 
 __attribute__((warn_unused_result)) ssize_t bdd_write_internal(
@@ -78,15 +106,15 @@ __attribute__((warn_unused_result)) ssize_t bdd_write_internal(
 	void *buf,
 	ssize_t sz
 ) {
-	if (sz <= 0) {
+	/*if (sz <= 0) {
 		return 0;
-	}
+	}*/
 	ssize_t r = 0;
 	do {
-		if (io->ssl != NULL) {
-			r = SSL_write(io->ssl, buf, sz);
+		if (io->ssl) {
+			r = SSL_write(io->io.ssl, buf, sz);
 		} else {
-			r = send(io->fd, buf, sz, 0);
+			r = send(io->io.fd, buf, sz, 0);
 		}
 	} while (r < 0 && errno == EINTR);
 	return r;
@@ -97,31 +125,19 @@ __attribute__((warn_unused_result)) ssize_t bdd_write(
 	void *buf,
 	ssize_t sz
 ) {
-	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
-	struct bdd_io *io = &(connections->io[io_id]);
-	assert(io->fd != -1);
-	return bdd_write_internal(io, buf, sz);
-}
-__attribute__((warn_unused_result)) ssize_t bdd_write_whole(
-	struct bdd_connections *connections,
-	bdd_io_id io_id,
-	void *buf,
-	ssize_t sz
-) {
-	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
-	struct bdd_io *io = &(connections->io[io_id]);
-	assert(io->fd != -1);
-	ssize_t n = 0;
-	while (n < sz) {
-		ssize_t r = bdd_write_internal(io, buf + n, sz - n);
-		if (r < 0) {
-			return r;
-		} else if (r == 0) {
-			return n;
-		}
-		n += r;
+	if (connections == NULL || io_id < 0 || io_id >= bdd_connections_n_max_io(connections) || buf == NULL || sz <= 0) {
+		fputs("programming error: bdd_write called with invalid arguments\n", stderr);
+		assert(false);
+		return false;
 	}
-	return n;
+	struct bdd_io *io = &(connections->io[io_id]);
+	if (io->state != BDD_IO_STATE_ESTABLISHED) {
+		fputs("programming error: bdd_write called with an io_id which is in a state not equal to BDD_IO_STATE_ESTABLISHED\n", stderr);
+		assert(false);
+		io->state = BDD_IO_STATE_BROKEN;
+		return false;
+	}
+	return bdd_write_internal(io, buf, sz);
 }
 
 void bdd_set_associated(
@@ -143,73 +159,213 @@ void bdd_set_associated(
 	return;
 }
 
-bool bdd_create_io(
+// thread-unsafe
+bool bdd_io_create(
 	struct bdd_connections *connections,
 	bdd_io_id *io_id,
-	int *fd,
-	const char *ssl_name
+	int domain,
+	int type,
+	int protocol
 ) {
-	// todo: take either an fd pointer or an ssl struct pointer pointer(?)
-
-	assert(connections != NULL && io_id != NULL);
+	if (connections == NULL || io_id == NULL) {
+		fputs("programming error: bdd_io_create called with invalid arguments\n", stderr);
+		assert(false);
+		return false;
+	}
 	struct bdd_io *io = NULL;
 	bdd_io_id idx = 0;
 	for (; idx < bdd_connections_n_max_io(connections); ++idx) {
-		if (connections->io[idx].fd == -1) {
+		if (connections->io[idx].state == BDD_IO_STATE_UNUSED) {
 			io = &(connections->io[idx]);
-			break;
+			goto found;
 		}
 	}
-	assert(io != NULL);
-	if (unlikely(io == NULL)) {
+	fputs("programming error: bdd_io_create could not find an unused bdd_io\n", stderr);
+	assert(false);
+	return false;
+
+	found:;
+
+	int fd = socket(domain, type, protocol);
+	if (fd < 0) {
 		return false;
 	}
-
-	// todo: this is bad and restrictive
-	SSL *ssl = NULL;
-	if (ssl_name != NULL) {
-		// i think it's not finna write to the ctx, so a global mutex
-		// lock is not required here also, BDD_GLOBAL_CL_SSL_CTX is
-		// guaranteed to be valid here
-		if ((ssl = SSL_new(BDD_GLOBAL_CL_SSL_CTX)) == NULL) {
-			return false;
-		}
-		if (unlikely(!SSL_set_fd(ssl, (*fd)))) {
-			SSL_free(ssl);
-			return false;
-		}
-		SSL_set_hostflags(ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
-		if (unlikely(!SSL_set_tlsext_host_name(ssl, ssl_name) || !SSL_set1_host(ssl, ssl_name))) {
-			SSL_free(ssl);
-			return false;
-		}
-		SSL_set_verify(ssl, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
-		if (SSL_connect(ssl) != 1) {
-			SSL_free(ssl);
-			return false;
-		}
-	}
-
-	io->fd = (*fd);
-	io->ssl = ssl;
-
-	(*fd) = -1;
+	io->state = BDD_IO_STATE_CREATED;
+	io->connect_stage = BDD_IO_CONNECT_STAGE_CONNECT;
+	io->connect_state = BDD_IO_CONNECT_STATE_WANTS_CALL;
+	io->tcp = (
+		(domain == AF_INET || domain == AF_INET6) &&
+		(type & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)) == SOCK_STREAM &&
+		protocol == 0
+	) ? 1 : 0;
+	io->ssl = 0;
+	io->io.fd = fd;
 	(*io_id) = idx;
 	return true;
 }
 
-void bdd_remove_io(struct bdd_connections *connections, bdd_io_id io_id) {
-	assert(connections != NULL && io_id >= 0 && io_id < bdd_connections_n_max_io(connections));
-	struct bdd_io *io = &(connections->io[io_id]);
-	assert(io->fd >= 0);
-	if (io->ssl != NULL) {
-		SSL_shutdown(io->ssl);
-		SSL_free(io->ssl);
-	} else {
-		shutdown(io->fd, SHUT_RDWR);
+bool bdd_io_prep_ssl(struct bdd_connections *connections, bdd_io_id io_id, char *ssl_name) {
+	if (connections == NULL || io_id < 0 || io_id >= bdd_connections_n_max_io(connections) || ssl_name == NULL) {
+		fputs("programming error: bdd_io_prep_ssl called with invalid arguments\n", stderr);
+		assert(false);
+		return false;
 	}
-	close(io->fd);
-	io->fd = -1;
+	struct bdd_io *io = &(connections->io[io_id]);
+	if (io->state != BDD_IO_STATE_CREATED) {
+		fputs("programming error: bdd_io_prep_ssl called with an io_id which is in a state not equal to BDD_IO_STATE_CREATED\n", stderr);
+		assert(false);
+		io->state = BDD_IO_STATE_BROKEN;
+		return false;
+	}
+	if (!io->tcp) {
+		fputs("programming error: bdd_io_prep_ssl called with an io_id which does not use tcp\n", stderr);
+		assert(false);
+		io->state = BDD_IO_STATE_BROKEN;
+		return false;
+	}
+	if (io->ssl) {
+		fputs("programming error: bdd_io_prep_ssl called with an io_id which already has ssl prepared\n", stderr);
+		assert(false);
+		io->state = BDD_IO_STATE_BROKEN;
+		return false;
+	}
+
+	SSL *ssl = SSL_new(BDD_GLOBAL_CL_SSL_CTX);
+	if (ssl == NULL) {
+		SSL_free(ssl);
+		io->state = BDD_IO_STATE_BROKEN;
+		return false;
+	}
+	SSL_set_fd(ssl, io->io.fd);
+	// sni
+	// to-do: does this strdup?
+	if (unlikely(!SSL_set_tlsext_host_name(ssl, ssl_name))) {
+		SSL_free(ssl);
+		io->state = BDD_IO_STATE_BROKEN;
+		return false;
+	}
+	// hostname vertification
+	SSL_set_hostflags(ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+	// to-do: does this strdup?
+	if (!SSL_set1_host(ssl, ssl_name)) {
+		SSL_free(ssl);
+		io->state = BDD_IO_STATE_BROKEN;
+		return false;
+	}
+	SSL_set_verify(ssl, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+
+	io->ssl = 1;
+	io->io.ssl = ssl;
+
+	return true;
+}
+
+enum bdd_io_connect_status bdd_io_connect(struct bdd_connections *connections, bdd_io_id io_id, struct addrinfo *addrinfo) {
+	if (connections == NULL || io_id < 0 || io_id >= bdd_connections_n_max_io(connections) || addrinfo == NULL) {
+		fputs("programming error: bdd_io_connect called with invalid arguments\n", stderr);
+		assert(false);
+		return bdd_io_connect_broken;
+	}
+	struct bdd_io *io = &(connections->io[io_id]);
+	if (io->state != BDD_IO_STATE_CREATED) {
+		fputs("programming error: bdd_io_connect called with an io_id which is in a state not equal to BDD_IO_STATE_CREATED\n", stderr);
+		assert(false);
+		io->state = BDD_IO_STATE_BROKEN;
+		return bdd_io_connect_broken;
+	}
+	assert(io->connect_state != BDD_IO_CONNECT_STATE_DO_NOT_CALL);
+
+	int fd;
+	if (!io->ssl) {
+		fd = io->io.fd;
+	} else {
+		fd = SSL_get_fd(io->io.ssl);
+		assert(fd >= 0);
+	}
+
+	if (io->connect_stage == BDD_IO_CONNECT_STAGE_CONNECT) {
+		if (io->connect_state == BDD_IO_CONNECT_STATE_WANTS_CALL) {
+			io->connect_state = BDD_IO_CONNECT_STATE_WANTS_CALL_ONCE_WRITABLE;
+			if (connect(fd, addrinfo->ai_addr, addrinfo->ai_addrlen) != 0) {
+				if (errno == EAGAIN || errno == EINPROGRESS) {
+					return bdd_io_connect_connecting;
+				}
+				// failed to connect
+				io->state = BDD_IO_STATE_BROKEN;
+				return bdd_io_connect_broken;
+			}
+		} else if (io->connect_state != BDD_IO_CONNECT_STATE_WANTS_CALL_ONCE_WRITABLE) {
+			fputs("bdd_io_connect internal error\n", stderr);
+			assert(false);
+			io->state = BDD_IO_STATE_BROKEN;
+			return bdd_io_connect_broken;
+		}
+		if (!io->ssl) {
+			io->state = BDD_IO_STATE_ESTABLISHED;
+			io->connect_state = BDD_IO_CONNECT_STATE_DO_NOT_CALL;
+			return bdd_io_connect_established;
+		}
+		io->connect_stage = BDD_IO_CONNECT_STAGE_SSL_CONNECT;
+	}
+	assert(io->connect_stage == BDD_IO_CONNECT_STAGE_SSL_CONNECT && io->connect_state != BDD_IO_CONNECT_STATE_WANTS_CALL); // this should be guaranteed to pass
+
+	int r = SSL_connect(io->io.ssl);
+	if (r == -1) {
+		int err = SSL_get_error(io->io.ssl, r);
+		if (err == SSL_ERROR_WANT_WRITE) {
+			io->connect_state = BDD_IO_CONNECT_STATE_WANTS_CALL_ONCE_WRITABLE;
+			return bdd_io_connect_connecting;
+		} else if (err == SSL_ERROR_WANT_READ) {
+			io->connect_state = BDD_IO_CONNECT_STATE_WANTS_CALL_ONCE_READABLE;
+			return bdd_io_connect_connecting;
+		} else {
+			io->state = BDD_IO_STATE_BROKEN;
+			return bdd_io_connect_broken;
+		}
+	} else if (r == 0) {
+		io->state = BDD_IO_STATE_BROKEN;
+		return bdd_io_connect_broken;
+	}
+
+	io->state = BDD_IO_STATE_ESTABLISHED;
+	io->connect_state = BDD_IO_CONNECT_STATE_DO_NOT_CALL;
+	return bdd_io_connect_established;
+}
+
+void bdd_io_remove(struct bdd_connections *connections, bdd_io_id io_id) {
+	if (connections == NULL || io_id < 0 || io_id >= bdd_connections_n_max_io(connections)) {
+		fputs("programming error: bdd_io_remove called with invalid arguments\n", stderr);
+		assert(false);
+		return;
+	}
+	struct bdd_io *io = &(connections->io[io_id]);
+	if (io->state == BDD_IO_STATE_UNUSED) {
+		fputs("programming error: bdd_io_remove called with an io_id which is in a state equal to BDD_IO_STATE_UNUSED\n", stderr);
+		assert(false);
+		// no point in setting the io's state to broken; this function doesn't even return a boolean
+		return;
+	}
+
+	int fd;
+	if (io->ssl) {
+		fd = SSL_get_fd(io->io.ssl);
+		assert(fd >= 0);
+		if (io->state == BDD_IO_STATE_ESTABLISHED) {
+			SSL_shutdown(io->io.ssl);
+		}
+		SSL_free(io->io.ssl);
+	} else {
+		if (io->tcp && io->state == BDD_IO_STATE_ESTABLISHED) {
+			shutdown(io->io.fd, SHUT_RDWR);
+		}
+		fd = io->io.fd;
+	}
+
+	// to-do: does SSL_shutdown or SSL_free close the fd?
+	close(fd);
+
+	io->state = BDD_IO_STATE_UNUSED;
+
 	return;
 }
 
@@ -229,14 +385,16 @@ enum bdd_connections_init_status bdd_connections_init(
 		return bdd_connections_init_failed;
 	}
 	connections->service = service;
-	connections->io[0].fd = SSL_get_fd(client_ssl);
-	connections->io[0].ssl = client_ssl;
+	connections->io[0].state = BDD_IO_STATE_ESTABLISHED;
+	connections->io[0].connect_state = BDD_IO_CONNECT_STATE_DO_NOT_CALL;
+	connections->io[0].tcp = 1;
+	connections->io[0].ssl = 1;
+	connections->io[0].io.ssl = client_ssl;
 	for (bdd_io_id idx = 1; idx < service->n_max_io; ++idx) {
-		connections->io[idx].fd = -1;
-		connections->io[idx].ssl = NULL;
+		connections->io[idx].state = BDD_IO_STATE_UNUSED;
 	}
-	if (service->connections_init != NULL
-	    && !service->connections_init(connections, protocol_name, instance_info, 0, client_sockaddr))
+	if (service->connections_init != NULL &&
+		!service->connections_init(connections, protocol_name, instance_info, 0, client_sockaddr))
 	{
 		return bdd_connections_init_failed_wants_deinit;
 	}
@@ -246,10 +404,10 @@ void bdd_connections_deinit(struct bdd_connections *connections) {
 	if (connections->io != NULL) {
 		for (bdd_io_id io_id = 0; io_id < bdd_connections_n_max_io(connections); ++io_id) {
 			struct bdd_io *io = &(connections->io[io_id]);
-			if (io->fd < 0) {
+			if (io->state == BDD_IO_STATE_UNUSED) {
 				continue;
 			}
-			bdd_remove_io(connections, io_id);
+			bdd_io_remove(connections, io_id);
 		}
 		free(connections->io);
 		connections->io = NULL;

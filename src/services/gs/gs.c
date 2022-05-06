@@ -9,25 +9,44 @@ struct general_service__associated {
 	bdd_io_id service;
 };
 static bool serve(struct bdd_connections *connections, void *buf, size_t buf_size, bdd_io_id from, bdd_io_id to) {
+	struct bdd_poll_io poll_io = {
+		.io_id = from,
+		.events = POLLIN,
+		.revents = 0,
+	};
 	do {
 		int n;
 		if ((n = bdd_read(connections, from, buf, buf_size)) <= 0) {
 			return false;
 		}
-		if (bdd_write_whole(connections, to, buf, n) <= 0) {
+		if (bdd_write(connections, to, buf, n) <= 0) {
 			return false;
 		}
-	} while ((bdd_poll(connections, from) & POLLIN));
+		bdd_poll(connections, &(poll_io), 1, 0);
+	} while (poll_io.revents & POLLIN);
 	return true;
 }
 bool general_service__serve(struct bdd_connections *connections, void *buf, size_t buf_size) {
 	struct general_service__associated *associated = bdd_get_associated(connections);
-	if ((bdd_poll(connections, associated->client) & POLLIN)) {
+	struct bdd_poll_io poll_ios[] = {
+		{
+			.io_id = associated->client,
+			.events = POLLIN,
+			.revents = 0,
+		},
+		{
+			.io_id = associated->service,
+			.events = POLLIN,
+			.revents = 0,
+		},
+	};
+	bdd_poll(connections, poll_ios, 2, 0);
+	if (poll_ios[0].revents & POLLIN) {
 		if (!serve(connections, buf, buf_size, associated->client, associated->service)) {
 			return false;
 		}
 	}
-	if ((bdd_poll(connections, associated->service)) & POLLIN) {
+	if (poll_ios[1].revents & POLLIN) {
 		if (!serve(connections, buf, buf_size, associated->service, associated->client)) {
 			return false;
 		}
@@ -47,27 +66,22 @@ bool general_service__connections_init(
 ) {
 	struct general_service__info *info = service_info;
 	struct addrinfo *addrinfo = info->addrinfo;
-	int sock = -1;
+	bdd_io_id service;
 	for (; addrinfo != NULL; addrinfo = addrinfo->ai_next) {
-		if ((sock = socket(addrinfo->ai_family, addrinfo->ai_socktype, addrinfo->ai_protocol)) < 0) {
+		if (!bdd_io_create(connections, &(service), addrinfo->ai_family, addrinfo->ai_socktype, addrinfo->ai_protocol)) {
 			continue;
 		}
 
-		if (connect(sock, addrinfo->ai_addr, addrinfo->ai_addrlen) >= 0) {
-			break;
+		if (bdd_io_connect(connections, service, addrinfo) == bdd_io_connect_established) {
+			goto created;
 		}
 
-		close(sock);
-		sock = -1;
+		bdd_io_remove(connections, service);
 	}
-	if (sock < 0) {
-		return false;
-	}
-	bdd_io_id service;
-	if (!bdd_create_io(connections, &(service), &(sock), info->tls_name)) {
-		close(sock);
-		return false;
-	}
+	return false;
+
+	created:;
+	// to-do: tls
 	struct general_service__associated *associated = malloc(sizeof(struct general_service__associated));
 	if (associated == NULL) {
 		// bdd-core will destroy the io
