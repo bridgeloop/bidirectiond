@@ -39,23 +39,39 @@ bdd_serve__find_connections:;
 		bool broken = true;
 		if (!connections->broken) {
 			for (bdd_io_id idx = 0; idx < bdd_connections_n_max_io(connections); ++idx) {
-				int fd = connections->io[idx].ssl ? SSL_get_fd(connections->io[idx].io.ssl) : connections->io[idx].io.fd;
-				if (fd < 0) {
+				struct bdd_io *io = &(connections->io[idx]);
+				if (io->state != BDD_IO_STATE_CREATED && io->state != BDD_IO_STATE_ESTABLISHED) {
 					continue;
 				}
+				int fd;
+				if (io->ssl) {
+					fd = SSL_get_fd(io->io.ssl);
+				} else {
+					fd = io->io.fd;
+				}
+				short int ev = EPOLLIN;
+				if (io->state == BDD_IO_STATE_CREATED && io->connect_state == BDD_IO_CONNECT_STATE_WANTS_CALL_ONCE_WRITABLE) {
+					ev = EPOLLOUT;
+				}
 				struct epoll_event event = {
-					.events = EPOLLIN,
+					.events = ev | EPOLLRDHUP,
 					.data = {
 						.ptr = connections,
 					},
 				};
 				if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
 					for (bdd_io_id idx2 = 0; idx2 < idx; ++idx2) {
-						fd = connections->io[idx2].ssl ? SSL_get_fd(connections->io[idx2].io.ssl) : connections->io[idx2].io.fd;
-						if (fd >= 0) {
-							int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
-							assert(r == 0);
+						io = &(connections->io[idx2]);
+						if (io->ssl) {
+							fd = SSL_get_fd(io->io.ssl);
+						} else {
+							fd = io->io.fd;
 						}
+						if (io->state != BDD_IO_STATE_CREATED && io->state != BDD_IO_STATE_ESTABLISHED) {
+							continue;
+						}
+						int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+						assert(r == 0);
 					}
 					broken = true;
 					break;
@@ -77,6 +93,7 @@ bdd_serve__find_connections:;
 		bdd_thread_exit(instance);
 	}
 
+	// to-do: mode where it wont serve while there are connecting ios that arent in the connect_state BDD_IO_CONNECT_STATE_WANTS_CALL
 	struct bdd_connections *connections_release_list = NULL;
 	for (int idx = 0; idx < n_events; ++idx) {
 		struct epoll_event *event = &(instance->epoll_oevents[idx]);
@@ -96,35 +113,90 @@ bdd_serve__find_connections:;
 			continue;
 		}
 
-		bool broken = false;
+		bool established_io = false;
+		bool connecting_io = false;
 		for (bdd_io_id io_id = 0; io_id < bdd_connections_n_max_io(connections); ++io_id) {
-			if (connections->io[io_id].state != BDD_IO_STATE_ESTABLISHED) {
-				continue;
+			struct bdd_io *io = &(connections->io[io_id]);
+			int fd;
+			if (io->ssl) {
+				fd = SSL_get_fd(io->io.ssl);
+			} else {
+				fd = io->io.fd;
 			}
-			if (!broken) {
+			if (io->state == BDD_IO_STATE_CREATED) {
+				int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+				assert(r == 0);
+				if (io->connect_state == BDD_IO_CONNECT_STATE_WANTS_CALL) {
+					continue;
+				}
 				struct bdd_poll_io poll_io = {
 					.io_id = io_id,
-					.events = POLLIN,
+					.events = POLLIN | POLLOUT | POLLRDHUP,
 					.revents = 0,
 				};
-				if (bdd_poll(connections, &(poll_io), 1, 0) < 0) {
-					broken = true;
-				}
-				// to-do: per-bdd_io error handling (delegated to the service)
-				// to-do: bdd_ios in a connecting state should be handled here too
-				else if ((poll_io.revents & (POLLERR | POLLHUP | POLLRDHUP)) && !(poll_io.revents & POLLIN)) {
-					broken = true;
-				}
+				r = bdd_poll(connections, &(poll_io), 1, 0);
 				assert(!(poll_io.revents & POLLNVAL));
+				if (r < 0 || (poll_io.revents & (POLLERR | POLLHUP | POLLRDHUP))) {
+					goto remove_io;
+				}
+				if (
+					(io->connect_state == BDD_IO_CONNECT_STATE_WANTS_CALL_ONCE_READABLE && (poll_io.revents & POLLIN)) ||
+					(io->connect_state == BDD_IO_CONNECT_STATE_WANTS_CALL_ONCE_WRITABLE && (poll_io.revents & POLLOUT))
+				) {
+					switch (bdd_io_connect(connections, io_id, NULL, 0)) {
+						case (bdd_io_connect_err): case (bdd_io_connect_broken): {
+							assert(false);
+							goto remove_io;
+						}
+						case (bdd_io_connect_established): {
+							connecting_io = true;
+							if (connections->service->io_established != NULL) {
+								connections->service->io_established(connections, io_id);
+							}
+							break;
+						}
+						default: {
+							connecting_io = true;
+							continue;
+						}
+					}
+				}
+			} else if (io->state == BDD_IO_STATE_ESTABLISHED) {
+				int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+				assert(r == 0);
+				struct bdd_poll_io poll_io = {
+					.io_id = io_id,
+					.events = POLLIN | POLLRDHUP,
+					.revents = 0,
+				};
+				r = bdd_poll(connections, &(poll_io), 1, 0);
+				assert(!(poll_io.revents & POLLNVAL));
+				if (poll_io.revents & (POLLIN | POLLRDHUP)) {
+					established_io = true;
+				} else if (
+					r < 0 ||
+					(poll_io.revents & (
+						POLLERR /* rst sent or received */ |
+						POLLHUP /* socket has been shut-down in both directions */)
+					)
+				) {
+					remove_io:;
+					bdd_io_remove(connections, io_id);
+					if (connections->service->io_removed != NULL) {
+						connections->service->io_removed(connections, io_id, poll_io.revents);
+					}
+				}
 			}
-			int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, connections->io[io_id].ssl ? SSL_get_fd(connections->io[io_id].io.ssl) : connections->io[io_id].io.fd, NULL);
-			assert(r == 0);
 		}
 
-		if (broken) {
-			BDD_DEBUG_LOG("found broken connections struct\n");
-			connections->next = connections_release_list;
-			connections_release_list = connections;
+		if (!established_io) {
+			if (connecting_io) {
+				bdd_connections_link(instance, &(connections));
+			} else {
+				BDD_DEBUG_LOG("found broken connections struct\n");
+				connections->next = connections_release_list;
+				connections_release_list = connections;
+			}
 			continue;
 		}
 

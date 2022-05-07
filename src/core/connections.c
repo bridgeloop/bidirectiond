@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <openssl/x509v3.h>
+#include <fcntl.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -193,11 +194,8 @@ bool bdd_io_create(
 	io->state = BDD_IO_STATE_CREATED;
 	io->connect_stage = BDD_IO_CONNECT_STAGE_CONNECT;
 	io->connect_state = BDD_IO_CONNECT_STATE_WANTS_CALL;
-	io->tcp = (
-		(domain == AF_INET || domain == AF_INET6) &&
-		(type & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)) == SOCK_STREAM &&
-		protocol == 0
-	) ? 1 : 0;
+	io->tcp = (type & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)) == SOCK_STREAM ? 1 : 0;
+	io->shutdown = 0;
 	io->ssl = 0;
 	io->io.fd = fd;
 	(*io_id) = idx;
@@ -260,20 +258,24 @@ bool bdd_io_prep_ssl(struct bdd_connections *connections, bdd_io_id io_id, char 
 	return true;
 }
 
-enum bdd_io_connect_status bdd_io_connect(struct bdd_connections *connections, bdd_io_id io_id, struct addrinfo *addrinfo) {
-	if (connections == NULL || io_id < 0 || io_id >= bdd_connections_n_max_io(connections) || addrinfo == NULL) {
+enum bdd_io_connect_status bdd_io_connect(struct bdd_connections *connections, bdd_io_id io_id, struct sockaddr *addr, socklen_t addrlen) {
+	if (connections == NULL || io_id < 0 || io_id >= bdd_connections_n_max_io(connections)) {
 		fputs("programming error: bdd_io_connect called with invalid arguments\n", stderr);
 		assert(false);
-		return bdd_io_connect_broken;
+		return bdd_io_connect_err;
 	}
 	struct bdd_io *io = &(connections->io[io_id]);
+	if (addr == NULL && io->connect_state == BDD_IO_CONNECT_STATE_WANTS_CALL) {
+		fputs("programming error: bdd_io_connect called with invalid arguments\n", stderr);
+		assert(false);
+		return bdd_io_connect_err;
+	}
 	if (io->state != BDD_IO_STATE_CREATED) {
 		fputs("programming error: bdd_io_connect called with an io_id which is in a state not equal to BDD_IO_STATE_CREATED\n", stderr);
 		assert(false);
 		io->state = BDD_IO_STATE_BROKEN;
 		return bdd_io_connect_broken;
 	}
-	assert(io->connect_state != BDD_IO_CONNECT_STATE_DO_NOT_CALL);
 
 	int fd;
 	if (!io->ssl) {
@@ -286,7 +288,7 @@ enum bdd_io_connect_status bdd_io_connect(struct bdd_connections *connections, b
 	if (io->connect_stage == BDD_IO_CONNECT_STAGE_CONNECT) {
 		if (io->connect_state == BDD_IO_CONNECT_STATE_WANTS_CALL) {
 			io->connect_state = BDD_IO_CONNECT_STATE_WANTS_CALL_ONCE_WRITABLE;
-			if (connect(fd, addrinfo->ai_addr, addrinfo->ai_addrlen) != 0) {
+			if (connect(fd, addr, addrlen) != 0) {
 				if (errno == EAGAIN || errno == EINPROGRESS) {
 					return bdd_io_connect_connecting;
 				}
@@ -302,7 +304,6 @@ enum bdd_io_connect_status bdd_io_connect(struct bdd_connections *connections, b
 		}
 		if (!io->ssl) {
 			io->state = BDD_IO_STATE_ESTABLISHED;
-			io->connect_state = BDD_IO_CONNECT_STATE_DO_NOT_CALL;
 			return bdd_io_connect_established;
 		}
 		io->connect_stage = BDD_IO_CONNECT_STAGE_SSL_CONNECT;
@@ -328,10 +329,62 @@ enum bdd_io_connect_status bdd_io_connect(struct bdd_connections *connections, b
 	}
 
 	io->state = BDD_IO_STATE_ESTABLISHED;
-	io->connect_state = BDD_IO_CONNECT_STATE_DO_NOT_CALL;
 	return bdd_io_connect_established;
 }
 
+void bdd_io_shutdown(struct bdd_connections *connections, bdd_io_id io_id) {
+	if (connections == NULL || io_id < 0 || io_id >= bdd_connections_n_max_io(connections)) {
+		fputs("programming error: bdd_io_shutdown called with invalid arguments\n", stderr);
+		assert(false);
+		return;
+	}
+	struct bdd_io *io = &(connections->io[io_id]);
+	if (io->state == BDD_IO_STATE_UNUSED) {
+		fputs("programming error: bdd_io_shutdown called with an io_id which is in a state equal to BDD_IO_STATE_UNUSED\n", stderr);
+		assert(false);
+		return;
+	}
+	if (io->state == BDD_IO_STATE_BROKEN) {
+		fputs("programming error: bdd_io_shutdown called with an io_id which is in a state equal to BDD_IO_STATE_BROKEN\n", stderr);
+		assert(false);
+		return;
+	}
+	// to-do: can you shutdown a non-blocking socket while it's connecting?
+	if (io->connect_state == BDD_IO_CONNECT_STATE_WANTS_CALL) {
+		assert(io->state == BDD_IO_STATE_CREATED);
+		fputs("programming error: bdd_io_shutdown called with an io_id which is in a connect state equal to BDD_IO_CONNECT_STATE_WANTS_CALL\n", stderr);
+		assert(false);
+		return;
+	}
+	if (!io->tcp) {
+		fputs("programming error: bdd_io_shutdown called with an io_id which does not hold a tcp socket\n", stderr);
+		assert(false);
+		return;
+	}
+	if (io->shutdown) {
+		fputs("programming error: bdd_io_shutdown called with an io_id which has already been shut-down\n", stderr);
+		assert(false);
+		return;
+	}
+	int fd;
+	if (io->ssl) {
+		fd = SSL_get_fd(io->io.ssl);
+	} else {
+		fd = io->io.fd;
+	}
+	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) & ~O_NONBLOCK);
+	if (io->ssl) {
+		int r = SSL_shutdown(io->io.ssl);
+		shutdown(fd, SHUT_WR);
+		if (r == 0) {
+			SSL_shutdown(io->io.ssl);
+		}
+	} else {
+		shutdown(io->io.fd, SHUT_WR);
+	}
+	io->shutdown = 1;
+	return;
+}
 void bdd_io_remove(struct bdd_connections *connections, bdd_io_id io_id) {
 	if (connections == NULL || io_id < 0 || io_id >= bdd_connections_n_max_io(connections)) {
 		fputs("programming error: bdd_io_remove called with invalid arguments\n", stderr);
@@ -349,23 +402,13 @@ void bdd_io_remove(struct bdd_connections *connections, bdd_io_id io_id) {
 	int fd;
 	if (io->ssl) {
 		fd = SSL_get_fd(io->io.ssl);
-		assert(fd >= 0);
-		if (io->state == BDD_IO_STATE_ESTABLISHED) {
-			SSL_shutdown(io->io.ssl);
-		}
 		SSL_free(io->io.ssl);
 	} else {
-		if (io->tcp && io->state == BDD_IO_STATE_ESTABLISHED) {
-			shutdown(io->io.fd, SHUT_RDWR);
-		}
 		fd = io->io.fd;
 	}
-
-	// to-do: does SSL_shutdown or SSL_free close the fd?
+	shutdown(fd, SHUT_RD);
 	close(fd);
-
 	io->state = BDD_IO_STATE_UNUSED;
-
 	return;
 }
 
@@ -388,6 +431,7 @@ enum bdd_connections_init_status bdd_connections_init(
 	connections->io[0].state = BDD_IO_STATE_ESTABLISHED;
 	connections->io[0].connect_state = BDD_IO_CONNECT_STATE_DO_NOT_CALL;
 	connections->io[0].tcp = 1;
+	connections->io[0].shutdown = 0;
 	connections->io[0].ssl = 1;
 	connections->io[0].io.ssl = client_ssl;
 	for (bdd_io_id idx = 1; idx < service->n_max_io; ++idx) {
@@ -430,9 +474,6 @@ void bdd_connections_link(struct bdd_instance *instance, struct bdd_connections 
 	return;
 }
 struct bdd_connections *bdd_connections_obtain(struct bdd_instance *instance) {
-	if (INST_CONNECTIONS.n_connections <= 0) {
-		return NULL;
-	}
 	struct bdd_connections *connections = NULL;
 	pthread_mutex_lock(&(INST_CONNECTIONS.available_mutex));
 	while (!atomic_load(&(instance->exiting)) && INST_CONNECTIONS.available_idx == INST_CONNECTIONS.n_connections) {

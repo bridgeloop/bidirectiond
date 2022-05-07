@@ -12,7 +12,6 @@
 #include <stdint.h>
 #include <sys/socket.h>
 #include <sys/time.h>
-#include <netdb.h>
 
 #ifndef POLLRDHUP
 #define POLLRDHUP 0x400
@@ -43,7 +42,8 @@ struct bdd_poll_io {
 struct bdd_instance;
 struct bdd_io {
 	uint8_t
-		state : 3,
+		state : 2,
+		shutdown : 1,
 		connect_stage : 1, // internal
 		connect_state : 2,
 		ssl : 1,
@@ -74,6 +74,9 @@ struct bdd_connections {
 
 struct bdd_service {
 	bool (*serve)(struct bdd_connections *connections, void *buf, size_t buf_size);
+
+	void (*io_removed)(struct bdd_connections *connections, bdd_io_id io_id, short int revents);
+	void (*io_established)(struct bdd_connections *connections, bdd_io_id io_id);
 
 	bool (*connections_init)(
 		struct bdd_connections *connections,
@@ -143,11 +146,12 @@ bool bdd_io_create(
 bool bdd_io_prep_ssl(struct bdd_connections *connections, bdd_io_id io_id, char *ssl_name);
 void bdd_io_remove(struct bdd_connections *connections, bdd_io_id io_id);
 enum bdd_io_connect_status {
+	bdd_io_connect_err,
 	bdd_io_connect_broken,
 	bdd_io_connect_connecting,
 	bdd_io_connect_established,
 };
-enum bdd_io_connect_status bdd_io_connect(struct bdd_connections *connections, bdd_io_id io_io, struct addrinfo *addrinfo);
+enum bdd_io_connect_status bdd_io_connect(struct bdd_connections *connections, bdd_io_id io_io, struct sockaddr *addr, socklen_t addrlen);
 void bdd_set_associated(
 	struct bdd_connections *connections,
 	void *data,
@@ -160,6 +164,7 @@ bool bdd_running(struct bdd_instance *instance);
 void bdd_wait(struct bdd_instance *instance);
 void bdd_stop(struct bdd_instance *instance);
 void bdd_destroy(struct bdd_instance *instance);
+void bdd_io_shutdown(struct bdd_connections *connections, bdd_io_id io_id);
 
 bool bdd_name_descriptions_add_service_instance(
 	struct locked_hashmap *name_descriptions,
