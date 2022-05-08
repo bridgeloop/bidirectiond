@@ -129,9 +129,16 @@ bdd_serve__find_connections:;
 		if (connections->prev != NULL) {
 			connections->prev->next = connections->next;
 		}
+		if (connections->next != NULL) {
+			connections->next->prev = connections->prev;
+		}
 		if (connections_list_tail == connections) {
 			if ((connections_list_tail = connections->prev) == NULL) {
 				connections_list = NULL;
+			}
+		} else if (connections_list == connections) {
+			if ((connections_list = connections->next) == NULL) {
+				connections_list_tail = NULL;
 			}
 		}
 		connections->next = NULL;

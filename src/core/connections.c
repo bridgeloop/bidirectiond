@@ -16,7 +16,7 @@ int bdd_poll(struct bdd_connections *connections, struct bdd_poll_io *io_ids, bd
 		assert(false);
 		return false;
 	}
-	struct pollfd pollfds[n_io_ids]; // may overflow the stack if n_poll_io_ids is huge
+	struct pollfd pollfds[n_io_ids]; // to-do: may overflow the stack if n_poll_io_ids is huge
 	for (
 		bdd_io_id idx = 0;
 		idx < n_io_ids;
@@ -29,6 +29,12 @@ int bdd_poll(struct bdd_connections *connections, struct bdd_poll_io *io_ids, bd
 			return -1;
 		}
 		struct bdd_io *io = &(connections->io[io_id]);
+		if (io->state != BDD_IO_STATE_ESTABLISHED) {
+			fputs("programming error: bdd_poll called with an io_id which is in a state not equal to BDD_IO_STATE_ESTABLISHED\n", stderr);
+			assert(false);
+			io->state = BDD_IO_STATE_BROKEN;
+			return false;
+		}
 		if (io->ssl) {
 			pollfds[idx].fd = SSL_get_fd(io->io.ssl);
 			if (SSL_has_pending(io->io.ssl)) {
@@ -422,11 +428,10 @@ enum bdd_connections_init_status bdd_connections_init(
 ) {
 	assert(service->n_max_io > 0);
 	SSL *client_ssl = (*client_ssl_ref);
-	(*client_ssl_ref) = NULL;
 	if ((connections->io = malloc(sizeof(struct bdd_io) * service->n_max_io)) == NULL) {
-		SSL_free(client_ssl);
 		return bdd_connections_init_failed;
 	}
+	(*client_ssl_ref) = NULL;
 	connections->service = service;
 	connections->io[0].state = BDD_IO_STATE_ESTABLISHED;
 	connections->io[0].connect_state = BDD_IO_CONNECT_STATE_DO_NOT_CALL;
@@ -480,7 +485,6 @@ struct bdd_connections *bdd_connections_obtain(struct bdd_instance *instance) {
 		pthread_cond_wait(&(INST_CONNECTIONS.available_cond), &(INST_CONNECTIONS.available_mutex));
 	}
 	if (!atomic_load(&(instance->exiting))) {
-		// todo: i should maybe make this *not* an int
 		int id = INST_CONNECTIONS.available[INST_CONNECTIONS.available_idx++];
 		connections = &(INST_CONNECTIONS.connections[id]);
 	}

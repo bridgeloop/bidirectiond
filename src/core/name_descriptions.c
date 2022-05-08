@@ -209,10 +209,6 @@ bool bdd_name_descriptions_create_ssl_ctx(
 					should_up_rc = true;
 				}
 			}
-			// todo: an else block here which would free the SSL_CTX would fuck up if the SSL_CTX has already
-			// been placed inside of a name_description which is in name_descriptions
-			// the current behaviour is to not apply the SSL_CTX to a name description if the above call fails,
-			// which is fine i think
 		}
 		GENERAL_NAMES_free(dns_alt_names);
 	} else { // rfc6125
