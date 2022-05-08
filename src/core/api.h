@@ -60,6 +60,7 @@ struct bdd_connections_associated {
 };
 
 struct bdd_connections {
+	struct bdd_connections *prev;
 	struct bdd_connections *next;
 
 	bool working: 1, broken: 1;

@@ -21,7 +21,7 @@ SSL_CTX *bdd_ssl_ctx_skel(void) {
 	SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
 	SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
 	return ssl_ctx;
-	
+
 	err:;
 	SSL_CTX_free(ssl_ctx);
 	return NULL;
@@ -151,8 +151,7 @@ bdd_accept_thread__poll:;
 		service_inst->service,
 		ctx->protocol_name,
 		service_inst->instance_info
-	))
-	{
+	)) {
 		case (bdd_connections_init_failed): {
 			goto bdd_accept__err;
 		}

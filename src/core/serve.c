@@ -9,14 +9,19 @@ void *bdd_serve(struct bdd_instance *instance) {
 	pthread_sigmask(SIG_BLOCK, &(instance->sigmask), NULL);
 	unsigned short int next_worker_id = 0;
 	struct bdd_workers *workers = &(instance->workers);
+	struct bdd_connections *connections_list = NULL;
+	struct bdd_connections *connections_list_tail = NULL;
+
 bdd_serve__find_connections:;
+
+	struct bdd_connections *connections_release_list = NULL;
 
 	BDD_DEBUG_LOG("linked_connections.head is %p\n", instance->linked_connections.head);
 	BDD_DEBUG_LOG("polling\n");
 
 	int n_events;
 	do {
-		n_events = epoll_wait(instance->epoll_fd, instance->epoll_oevents, instance->n_epoll_oevents, -1);
+		n_events = epoll_wait(instance->epoll_fd, instance->epoll_oevents, instance->n_epoll_oevents, -1 /*instance->epoll_timeout*/);
 	} while (n_events < 0 && errno == EINTR);
 	if (unlikely(n_events < 0)) {
 		fprintf(stderr, "bidirectiond epoll error: %i - try increasing your rlimits for open files\n", errno);
@@ -31,10 +36,10 @@ bdd_serve__find_connections:;
 		assert(r == 8 || r < 0);
 	}
 	for (
-		struct bdd_connections **curr = &(instance->linked_connections.head), *connections;
-		(connections = (*curr)) != NULL;
+		struct bdd_connections *connections;
+		(connections = instance->linked_connections.head) != NULL;
 	) {
-		struct bdd_connections **next = &(connections->next);
+		struct bdd_connections *next = connections->next;
 		connections->working = false;
 		bool broken = true;
 		if (!connections->broken) {
@@ -80,12 +85,22 @@ bdd_serve__find_connections:;
 			}
 		}
 		if (broken) {
-			bdd_connections_deinit(connections);
-			bdd_connections_release(instance, curr);
+			connections->next = connections_release_list;
+			connections_release_list = connections;
+			connections->working = true;
 		} else {
-			(*curr) = NULL;
+			connections->next = NULL;
+			if (connections_list == NULL) {
+				assert(connections_list_tail == NULL);
+				connections->prev = NULL;
+				connections_list_tail = connections_list = connections;
+			} else {
+				assert(connections_list_tail != NULL);
+				(connections->prev = connections_list_tail)->next = connections;
+				connections_list_tail = connections;
+			}
 		}
-		curr = next;
+		instance->linked_connections.head = next;
 	}
 	pthread_mutex_unlock(&(instance->linked_connections.mutex));
 
@@ -94,15 +109,13 @@ bdd_serve__find_connections:;
 	}
 
 	// to-do: mode where it wont serve while there are connecting ios that arent in the connect_state BDD_IO_CONNECT_STATE_WANTS_CALL
-	struct bdd_connections *connections_release_list = NULL;
 	for (int idx = 0; idx < n_events; ++idx) {
 		struct epoll_event *event = &(instance->epoll_oevents[idx]);
 		struct bdd_connections *connections = event->data.ptr;
 
-		if (connections == NULL) {
+		if (connections == NULL) { // eventfd
 			continue;
 		}
-		assert(connections->next == NULL);
 		if (pthread_mutex_trylock(&(connections->working_mutex)) != 0) {
 			continue;
 		}
@@ -112,6 +125,16 @@ bdd_serve__find_connections:;
 		if (already_working) {
 			continue;
 		}
+
+		if (connections->prev != NULL) {
+			connections->prev->next = connections->next;
+		}
+		if (connections_list_tail == connections) {
+			if ((connections_list_tail = connections->prev) == NULL) {
+				connections_list = NULL;
+			}
+		}
+		connections->next = NULL;
 
 		bool established_io = false;
 		bool connecting_io = false;
@@ -177,8 +200,8 @@ bdd_serve__find_connections:;
 					r < 0 ||
 					(poll_io.revents & (
 						POLLERR /* rst sent or received */ |
-						POLLHUP /* socket has been shut-down in both directions */)
-					)
+						POLLHUP /* socket has been shut-down in both directions */
+					))
 				) {
 					remove_io:;
 					bdd_io_remove(connections, io_id);
@@ -233,7 +256,7 @@ bdd_serve__find_connections:;
 		pthread_mutex_unlock(&(worker->work_mutex));
 	}
 
-	while (connections_release_list) {
+	while (connections_release_list != NULL) {
 		struct bdd_connections *next = connections_release_list->next;
 		bdd_connections_deinit(connections_release_list);
 		bdd_connections_release(instance, &(connections_release_list));
