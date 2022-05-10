@@ -3,8 +3,10 @@
 #include "input_processor.h"
 #include "strtoint.h"
 
+#include <poll.h>
+#include <assert.h>
 #include <arpa/inet.h>
-#include <bddc/api.h>
+#include <bddc/settings.h>
 #include <fcntl.h>
 #include <openssl/engine.h>
 #include <openssl/err.h>
@@ -27,12 +29,11 @@
 
 struct bdd_settings settings = {
 	.name_descriptions = NULL,
-	.n_connections = 0x100,
+	.n_conversations = 0x100,
 	.n_epoll_oevents = 0x200,
 	.buf_sz = 0x800,
 	.n_worker_threads = 16,
 	.client_timeout = 12000,
-	.use_stack_buf = false,
 	.sv_socket = -1,
 	.use_work_queues = false,
 };
@@ -167,9 +168,9 @@ main__arg_iter:;
 			EXPECT_ARGS(1);
 			stousi(&(port), arg[1]);
 			arg += 2;
-		} else if (strcmp((*arg), "--max-connections") == 0) {
+		} else if (strcmp((*arg), "--max-conversations") == 0) {
 			EXPECT_ARGS(1);
-			stoi(&(settings.n_connections), arg[1]);
+			stoi(&(settings.n_conversations), arg[1]);
 			arg += 2;
 		} else if (strcmp((*arg), "--disable-ipv6") == 0) {
 			disable_ipv6 = true;
@@ -244,12 +245,6 @@ main__arg_creds_err:;
 			}
 
 			arg += 4;
-		} else if (strcmp((*arg), "--UNSAFE allocate buffer on stack") == 0) {
-			fputs("'--UNSAFE allocate buffer on stack' is unsafe and "
-			      "shouldn't be used\n",
-			      stderr);
-			settings.use_stack_buf = true;
-			arg += 1;
 		} else if (getuid() == 0 && strcmp((*arg), "--uid") == 0) {
 			EXPECT_ARGS(1);
 			stouid(&(nuid), arg[1]);
@@ -311,8 +306,8 @@ main__arg_fuck:;
 			     "-b: set the size of the large worker buffers\n"
 			     "--backlog: set the tcp backlog for sv_socket\n"
 			     "-p: set the tcp port to bind sv_socket to\n"
-			     "--max-connections: the max amount of "
-			     "bdd_connections structs\n"
+			     "--max-conversations: the max amount of "
+			     "bdd_conversation structs\n"
 			     "--disable-ipv6: sv_socket should not use ipv6\n"
 			     "--use-work-queue: do not wait for worker threads "
 			     "before giving them work\n"
@@ -320,7 +315,7 @@ main__arg_fuck:;
 			     "-c: load pem-encoded tls credentials (e.g. `-c "
 			     "cert.pem encrypted-key.pem "
 			     "name-of-password-environment-variable`)\n"
-			     "--input: set the path for a udp unix socket, so "
+			     "--input: set the path for a tcp unix socket, so "
 			     "that some bidirectiond settings can be modified "
 			     "without restarting\n"
 			     "--n-epoll-oevents: epoll_wait maxevents\n"

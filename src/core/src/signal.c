@@ -1,6 +1,8 @@
-#include "internal.h"
-
 #include <unistd.h>
+#include <pthread.h>
+#include <assert.h>
+
+#include "headers/instance.h"
 
 void bdd_signal(struct bdd_instance *instance) {
 	char buf[8] = {
@@ -41,4 +43,5 @@ void bdd_thread_exit(struct bdd_instance *instance) {
 	}
 	pthread_mutex_unlock(&(instance->n_running_threads_mutex));
 	pthread_exit(NULL);
+	return;
 }

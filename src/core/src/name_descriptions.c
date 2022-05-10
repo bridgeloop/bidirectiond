@@ -1,7 +1,12 @@
-#include "internal.h"
-
+#include <stdbool.h>
+#include <stddef.h>
+#include <hashmap/hashmap.h>
 #include <openssl/x509v3.h>
 #include <string.h>
+
+#include "headers/name_descriptions.h"
+#include "headers/bdd_service.h"
+#include "headers/bdd_ssl_ctx_skel.h"
 
 // struct bdd_name_description
 struct bdd_name_description *bdd_name_description_alloc(void) {
@@ -26,8 +31,10 @@ void bdd_name_description_clean_ssl_ctx(struct bdd_name_description *name_descri
 }
 
 void bdd_name_description_clean_services(struct bdd_name_description *name_description) {
-	for (struct bdd_service_instance **service_inst = &(name_description->service_instances);
-	     (*service_inst) != NULL;) {
+	for (
+		struct bdd_service_instance **service_inst = &(name_description->service_instances);
+		(*service_inst) != NULL;
+	) {
 		struct bdd_service_instance *curr = (*service_inst);
 		(*service_inst) = curr->next;
 		curr->service->instance_info_destructor(curr->instance_info);

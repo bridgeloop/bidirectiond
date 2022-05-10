@@ -5,11 +5,11 @@ if sys.argv[0] != "./build.py":
     print("shit")
     exit(1)
 gcc_args = ["gcc", "-o", "bidirectiond"]
-services_c = "#include <bddc/api.h>\n"
+services_c = "#include <bddc/settings.h>\n"
 services = "const struct bdd_service services[] = {"
 names = [
-	["bool %s(struct bdd_connections *connections, void *buf, size_t buf_size);", "serve"],
-	["bool %s(struct bdd_connections *connections, const char *protocol_name, void *instance_info, bdd_io_id client_id, struct sockaddr client_sockaddr);", "connections_init"],
+	["bool %s(struct bdd_conversation *conversation, void *buf, size_t buf_size);", "serve"],
+	["bool %s(struct bdd_conversation *conversation, const char *protocol_name, void *instance_info, bdd_io_id client_id, struct sockaddr client_sockaddr);", "conversation_init"],
 	["void %s(void *instance_info);", "instance_info_destructor"]]
 np = 0
 for dir, _, files in os.walk("src"):

@@ -1,7 +1,7 @@
 {
     "serve": "general_service__serve",
-    "instantiate": "general_service__service_init",
-    "connections_init": "general_service__connections_init",
+    "instantiate": "general_service__instantiate",
+    "conversation_init": "general_service__conversation_init",
     "instance_info_destructor": "general_service__instance_info_destructor",
     "supported_arguments": [
         "-s"

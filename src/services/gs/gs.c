@@ -1,16 +1,19 @@
-#include <bddc/api.h>
+#include <bddc/services.h>
 #include <netdb.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <assert.h>
+#include <stdlib.h>
+
 struct general_service__associated {
 	bdd_io_id client;
 	bdd_io_id service;
 	bool cl_shutdown;
 	bool sv_shutdown;
 };
-static char serve(struct bdd_connections *connections, void *buf, size_t buf_size, bdd_io_id from, bdd_io_id to) {
+static char serve(struct bdd_conversation *conversation, void *buf, size_t buf_size, bdd_io_id from, bdd_io_id to) {
 	struct bdd_poll_io poll_io = {
 		.io_id = from,
 		.events = POLLIN,
@@ -18,18 +21,18 @@ static char serve(struct bdd_connections *connections, void *buf, size_t buf_siz
 	};
 	do {
 		int n;
-		if ((n = bdd_read(connections, from, buf, buf_size)) <= 0) {
+		if ((n = bdd_read(conversation, from, buf, buf_size)) <= 0) {
 			return 1;
 		}
-		if (bdd_write(connections, to, buf, n) <= 0) {
+		if (bdd_write(conversation, to, buf, n) <= 0) {
 			return 2;
 		}
-		bdd_poll(connections, &(poll_io), 1, 0);
+		bdd_poll(conversation, &(poll_io), 1, 0);
 	} while (poll_io.revents & POLLIN);
 	return 0;
 }
-bool general_service__serve(struct bdd_connections *connections, void *buf, size_t buf_size) {
-	struct general_service__associated *associated = bdd_get_associated(connections);
+bool general_service__serve(struct bdd_conversation *conversation, void *buf, size_t buf_size) {
+	struct general_service__associated *associated = bdd_get_associated(conversation);
 	struct bdd_poll_io poll_ios[] = {
 		{
 			.io_id = associated->client,
@@ -42,10 +45,10 @@ bool general_service__serve(struct bdd_connections *connections, void *buf, size
 			.revents = 0,
 		},
 	};
-	bdd_poll(connections, poll_ios, 2, 0);
+	bdd_poll(conversation, poll_ios, 2, 0);
 	char r;
 	if (poll_ios[0].revents & POLLIN) {
-		switch ((r = serve(connections, buf, buf_size, associated->client, associated->service))) {
+		switch ((r = serve(conversation, buf, buf_size, associated->client, associated->service))) {
 			case (2): {
 				poll_ios[1].revents |= POLLRDHUP;
 			}
@@ -55,7 +58,7 @@ bool general_service__serve(struct bdd_connections *connections, void *buf, size
 		}
 	}
 	if (r != 2 && (poll_ios[1].revents & POLLIN)) {
-		switch ((r = serve(connections, buf, buf_size, associated->service, associated->client))) {
+		switch ((r = serve(conversation, buf, buf_size, associated->service, associated->client))) {
 			case (2): {
 				poll_ios[0].revents |= POLLRDHUP;
 			}
@@ -66,11 +69,11 @@ bool general_service__serve(struct bdd_connections *connections, void *buf, size
 	}
 	if ((poll_ios[0].revents & POLLRDHUP) && !associated->sv_shutdown) {
 		associated->sv_shutdown = true;
-		bdd_io_shutdown(connections, associated->service);
+		bdd_io_shutdown(conversation, associated->service);
 	}
 	if ((poll_ios[1].revents & POLLRDHUP) && !associated->cl_shutdown) {
 		associated->cl_shutdown = true;
-		bdd_io_shutdown(connections, associated->client);
+		bdd_io_shutdown(conversation, associated->client);
 	}
 	return !(associated->cl_shutdown && associated->sv_shutdown);
 }
@@ -78,8 +81,8 @@ struct general_service__info {
 	struct addrinfo *addrinfo;
 	const char *tls_name;
 };
-bool general_service__connections_init(
-	struct bdd_connections *connections,
+bool general_service__conversation_init(
+	struct bdd_conversation *conversation,
 	const char *protocol_name,
 	void *service_info,
 	bdd_io_id client_id,
@@ -89,15 +92,15 @@ bool general_service__connections_init(
 	struct addrinfo *addrinfo = info->addrinfo;
 	bdd_io_id service;
 	for (; addrinfo != NULL; addrinfo = addrinfo->ai_next) {
-		if (!bdd_io_create(connections, &(service), addrinfo->ai_family, addrinfo->ai_socktype, addrinfo->ai_protocol)) {
+		if (!bdd_io_create(conversation, &(service), addrinfo->ai_family, addrinfo->ai_socktype, addrinfo->ai_protocol)) {
 			continue;
 		}
 
-		if (bdd_io_connect(connections, service, addrinfo->ai_addr, addrinfo->ai_addrlen) == bdd_io_connect_established) {
+		if (bdd_io_connect(conversation, service, addrinfo->ai_addr, addrinfo->ai_addrlen) == bdd_io_connect_established) {
 			goto created;
 		}
 
-		bdd_io_remove(connections, service);
+		bdd_io_remove(conversation, service);
 	}
 	return false;
 
@@ -110,7 +113,7 @@ bool general_service__connections_init(
 	}
 	associated->client = client_id;
 	associated->service = service;
-	bdd_set_associated(connections, associated, free);
+	bdd_set_associated(conversation, associated, free);
 	return true;
 }
 void general_service__instance_info_destructor(void *hint) {
@@ -163,7 +166,7 @@ handle_s__err:;
 	general_service__instance_info_destructor(info);
 	return false;
 }
-bool general_service__service_init(
+bool general_service__instantiate(
 	struct locked_hashmap *name_descriptions,
 	const struct bdd_service *service,
 	size_t argc,

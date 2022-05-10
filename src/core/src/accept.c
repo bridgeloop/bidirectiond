@@ -1,31 +1,21 @@
-#include "internal.h"
-
 #include <errno.h>
+#include <openssl/ssl.h>
+#include <poll.h>
+#include <assert.h>
+#include <stdint.h>
 #include <fcntl.h>
-#include <openssl/err.h>
-#include <signal.h>
-#include <string.h>
 #include <unistd.h>
+#include <arpa/inet.h>
 
-SSL_CTX *bdd_ssl_ctx_skel(void) {
-	SSL_CTX *ssl_ctx = SSL_CTX_new(TLS_server_method());
-	if (ssl_ctx == NULL) {
-		return NULL;
-	}
-	if (SSL_CTX_set_ciphersuites(
-		ssl_ctx,
-		"TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256"
-	) != 1) {
-		goto err;
-	}
-	SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
-	SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
-	return ssl_ctx;
-
-	err:;
-	SSL_CTX_free(ssl_ctx);
-	return NULL;
-}
+#include "headers/instance.h"
+#include "headers/accept.h"
+#include "headers/unlikely.h"
+#include "headers/debug_log.h"
+#include "headers/conversations.h"
+#include "headers/name_descriptions.h"
+#include "headers/bdd_service.h"
+#include "headers/signal.h"
+#include "headers/internal_globals.h"
 
 int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 	const unsigned char *extension;
@@ -49,8 +39,11 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 
 	uint8_t found_req = 0;
 	for (size_t idx = 0;;) {
-		struct bdd_name_description *name_description
-			= locked_hashmap_get_wl(ctx->locked_name_descriptions, (char *)&(name[idx]), name_sz);
+		struct bdd_name_description *name_description = locked_hashmap_get_wl(
+			ctx->locked_name_descriptions,
+			(char *)&(name[idx]),
+			name_sz
+		);
 		if (name_description != NULL) {
 			if (!(found_req & 0b01) && name_description->ssl_ctx != NULL) {
 				found_req |= 0b01;
@@ -78,7 +71,7 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 
 void *bdd_accept(struct bdd_instance *instance) {
 	struct bdd_accept_ctx *ctx = &(instance->accept.accept_ctx);
-bdd_accept_thread__poll:;
+	poll:;
 	while (poll(instance->accept.pollfds, 2, -1) < 0) {
 		if (errno != EINTR) {
 			bdd_stop(instance);
@@ -89,19 +82,19 @@ bdd_accept_thread__poll:;
 		bdd_thread_exit(instance);
 	}
 
-	struct bdd_connections *connections = NULL;
+	struct bdd_conversation *conversation = NULL;
 	SSL *client_ssl = NULL;
 	ctx->service_instance = NULL;
 	ctx->protocol_name = NULL;
 	int cl_socket = -1;
 
 #ifdef BIDIRECTIOND_ACCEPT_OCBCNS
-	if ((connections = bdd_connections_obtain(instance)) == NULL) {
-		goto bdd_accept__err;
+	if ((conversation = bdd_conversation_obtain(instance)) == NULL) {
+		goto err;
 	}
 #endif
 	if ((client_ssl = SSL_new(instance->accept.ssl_ctx)) == NULL) {
-		goto bdd_accept__err;
+		goto err;
 	}
 
 	// accept
@@ -113,7 +106,7 @@ bdd_accept_thread__poll:;
 	} while (cl_socket < 0 && errno == EINTR);
 	if (cl_socket < 0) {
 		BDD_DEBUG_LOG("rejected tcp connection\n");
-		goto bdd_accept__err;
+		goto err;
 	}
 	BDD_DEBUG_LOG("accepted tcp connection\n");
 
@@ -122,17 +115,16 @@ bdd_accept_thread__poll:;
 	setsockopt(cl_socket, SOL_SOCKET, SO_RCVTIMEO, &(instance->client_timeout), sizeof(instance->client_timeout));
 
 	if (!SSL_set_fd(client_ssl, cl_socket)) {
-		goto bdd_accept__err;
+		goto err;
 	}
 
 	if ((ctx->locked_name_descriptions = hashmap_lock(instance->name_descriptions)) == NULL) {
 		BDD_DEBUG_LOG("failed to obtain name_descriptions\n");
-		goto bdd_accept__err;
+		goto err;
 	}
 	if (SSL_accept(client_ssl) <= 0) {
-		ERR_print_errors_fp(stderr);
 		BDD_DEBUG_LOG("rejected tls setup\n");
-		goto bdd_accept__err;
+		goto err;
 	}
 
 	assert(ctx->service_instance != NULL);
@@ -140,35 +132,36 @@ bdd_accept_thread__poll:;
 
 	struct bdd_service_instance *service_inst = ctx->service_instance;
 #ifndef BIDIRECTIOND_ACCEPT_OCBCNS
-	if ((connections = bdd_connections_obtain(instance)) == NULL) {
-		goto bdd_accept__err;
+	if ((conversation = bdd_conversation_obtain(instance)) == NULL) {
+		goto err;
 	}
 #endif
-	switch (bdd_connections_init(
-		connections,
+	switch (bdd_conversation_init(
+		conversation,
 		&(client_ssl),
 		cl_sockaddr,
 		service_inst->service,
 		ctx->protocol_name,
 		service_inst->instance_info
 	)) {
-		case (bdd_connections_init_failed): {
-			goto bdd_accept__err;
+		case (bdd_conversation_init_failed): {
+			goto err;
 		}
-		case (bdd_connections_init_success): {
-			bdd_connections_link(instance, &(connections));
+		case (bdd_conversation_init_success): {
+			bdd_conversation_link(instance, &(conversation));
 			break;
 		}
-		case (bdd_connections_init_failed_wants_deinit): {
-			bdd_connections_deinit(connections);
-			goto bdd_accept__err;
+		case (bdd_conversation_init_failed_wants_deinit): {
+			bdd_conversation_deinit(conversation);
+			goto err;
 		}
 	}
 
 	locked_hashmap_unlock(&(ctx->locked_name_descriptions));
-	goto bdd_accept_thread__poll;
+	goto poll;
 
-bdd_accept__err:;
+	err:;
+
 	BDD_DEBUG_LOG("failed to accept connection\n");
 
 	if (ctx->locked_name_descriptions != NULL) {
@@ -180,8 +173,8 @@ bdd_accept__err:;
 	if (cl_socket >= 0) {
 		close(cl_socket);
 	}
-	if (connections != NULL) {
-		bdd_connections_release(instance, &(connections));
+	if (conversation != NULL) {
+		bdd_conversation_release(instance, &(conversation));
 	}
-	goto bdd_accept_thread__poll;
+	goto poll;
 }
