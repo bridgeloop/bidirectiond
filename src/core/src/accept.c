@@ -15,7 +15,6 @@
 #include "headers/name_descriptions.h"
 #include "headers/bdd_service.h"
 #include "headers/signal.h"
-#include "headers/internal_globals.h"
 
 int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 	const unsigned char *extension;

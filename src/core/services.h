@@ -10,6 +10,7 @@
 #include "src/headers/bdd_io_remove.h"
 #include "src/headers/bdd_io_connect.h"
 #include "src/headers/bdd_poll.h"
+#include "src/headers/bdd_io_shutdown.h"
 
 struct bdd_conversation;
 
@@ -39,7 +40,6 @@ void bdd_set_associated(
 	void *data,
 	void (*destructor)(void *)
 );
-void bdd_io_shutdown(struct bdd_conversation *conversation, bdd_io_id io_id);
 void *bdd_get_associated(struct bdd_conversation *conversation);
 bool bdd_name_descriptions_add_service_instance(
 	struct locked_hashmap *name_descriptions,

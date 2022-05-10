@@ -11,8 +11,11 @@
 #define BDD_IO_STATE_ESTABLISHED 4
 #define BDD_IO_STATE_BROKEN 5
 
-#define BDD_IO_SSL_CONNECT_STATE_WANTS_CALL_ONCE_WRITABLE 1
-#define BDD_IO_SSL_CONNECT_STATE_WANTS_CALL_ONCE_READABLE 2
+#define BDD_IO_CONNECTING_SUBSTATE_AGAIN 0
+#define BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS 1
+
+#define BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_READ 0
+#define BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_WRITE 1
 
 #define BDD_IO_WAIT_DONT 0
 #define BDD_IO_WAIT_FOR_ESTABLISHMENT 1
@@ -21,11 +24,12 @@
 struct bdd_io {
 	uint16_t
 		state : 3,
-		ssl_connecting_state : 1,
+		substate : 1,
 
-		ssl : 1,
 		tcp : 1,
-		shutdown : 1,
+		shut_wr : 1,
+		ssl : 1,
+		ssl_shut : 1,
 
 		wait : 2;
 	union {

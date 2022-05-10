@@ -18,6 +18,7 @@
 #include "headers/bdd_io_connect.h"
 #include "headers/bdd_service.h"
 #include "headers/signal.h"
+#include "headers/pollrdhup.h"
 
 void *bdd_serve(struct bdd_instance *instance) {
 	pthread_sigmask(SIG_BLOCK, &(instance->sigmask), NULL);
@@ -58,7 +59,10 @@ void *bdd_serve(struct bdd_instance *instance) {
 		if (!conversation->release) {
 			for (bdd_io_id idx = 0; idx < bdd_conversation_n_max_io(conversation); ++idx) {
 				struct bdd_io *io = &(conversation->io[idx]);
-				if (io->state != BDD_IO_STATE_CREATED && io->state != BDD_IO_STATE_ESTABLISHED) {
+				if (
+					(io->state != BDD_IO_STATE_CONNECTING && io->substate == BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS) &&
+					io->state != BDD_IO_STATE_SSL_CONNECTING &&
+					io->state != BDD_IO_STATE_ESTABLISHED) {
 					continue;
 				}
 				int fd;
@@ -67,9 +71,14 @@ void *bdd_serve(struct bdd_instance *instance) {
 				} else {
 					fd = io->io.fd;
 				}
-				short int ev = EPOLLIN;
-				if (io->state == BDD_IO_STATE_CREATED && io->connect_state == BDD_IO_CONNECT_STATE_WANTS_CALL_ONCE_WRITABLE) {
+				short int ev;
+				if (
+					(io->state == BDD_IO_STATE_CONNECTING && io->substate == BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS) ||
+					(io->state == BDD_IO_STATE_SSL_CONNECTING && io->substate == BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_WRITE)
+				) {
 					ev = EPOLLOUT;
+				} else {
+					ev = EPOLLIN;
 				}
 				struct epoll_event event = {
 					.events = ev | EPOLLRDHUP,
@@ -120,7 +129,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 		bdd_thread_exit(instance);
 	}
 
-	// to-do: mode where it wont serve while there are connecting ios that arent in the connect_state BDD_IO_CONNECT_STATE_WANTS_CALL
+	// to-do: implement io wait
 	for (int idx = 0; idx < n_events; ++idx) {
 		struct epoll_event *event = &(instance->epoll_oevents[idx]);
 		struct bdd_conversation *conversation = event->data.ptr;
@@ -165,12 +174,12 @@ void *bdd_serve(struct bdd_instance *instance) {
 			} else {
 				fd = io->io.fd;
 			}
-			if (io->state == BDD_IO_STATE_CREATED) {
+			if (
+				(io->state == BDD_IO_STATE_CONNECTING && io->substate == BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS) ||
+				(io->state == BDD_IO_STATE_SSL_CONNECTING)
+			) {
 				int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
 				assert(r == 0);
-				if (io->connect_state == BDD_IO_CONNECT_STATE_WANTS_CALL) {
-					continue;
-				}
 				struct bdd_poll_io poll_io = {
 					.io_id = io_id,
 					.events = POLLIN | POLLOUT | POLLRDHUP,
@@ -182,8 +191,9 @@ void *bdd_serve(struct bdd_instance *instance) {
 					goto remove_io;
 				}
 				if (
-					(io->connect_state == BDD_IO_CONNECT_STATE_WANTS_CALL_ONCE_READABLE && (poll_io.revents & POLLIN)) ||
-					(io->connect_state == BDD_IO_CONNECT_STATE_WANTS_CALL_ONCE_WRITABLE && (poll_io.revents & POLLOUT))
+					(io->state == BDD_IO_STATE_CONNECTING && io->substate == BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS && (poll_io.revents & POLLOUT)) ||
+					(io->state == BDD_IO_STATE_SSL_CONNECTING && io->substate == BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_READ && (poll_io.revents & POLLIN)) ||
+					(io->state == BDD_IO_STATE_SSL_CONNECTING && io->substate == BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_WRITE && (poll_io.revents & POLLOUT))
 				) {
 					switch (bdd_io_connect(conversation, io_id, NULL, 0)) {
 						case (bdd_io_connect_err): case (bdd_io_connect_broken): {
