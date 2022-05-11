@@ -38,7 +38,6 @@ void *bdd_worker(struct bdd_worker *worker) {
 	if (unlikely(atomic_load(&(instance->exiting)))) {
 		pthread_mutex_unlock(&(worker->work_mutex));
 		bdd_thread_exit(instance);
-		assert(false);
 	}
 
 	struct bdd_conversation *conversation = worker->conversations;

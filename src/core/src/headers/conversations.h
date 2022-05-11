@@ -49,9 +49,13 @@ struct bdd_associated {
 // a worker's conversation list does not use the `prev` pointer.
 struct bdd_conversation {
 	uint8_t
-		struct_id : 6, // constant, set by bdd_go
-		skip : 1, // moved out of the valid_conversations linked list, set by bdd_serve
-		release : 1; // linked_conversations processor should release the conversation, set by bdd_conversation_init and bdd_worker
+		struct_id : 6, // constant - set by bdd_go
+		skip : 1, // moved out of the valid_conversations linked list - set by bdd_serve
+		release : 1; // linked_conversations processor should release the conversation - set by bdd_conversation_init and bdd_worker
+
+	// number of bdd_io structs which are in a waiting state
+	// set by services and bdd_serve
+	bdd_io_id n_waiting;
 
 	// valid_conversations
 	// set by the linked_conversations processor when the conversation is moved into valid_conversations
@@ -90,5 +94,7 @@ struct bdd_conversation *bdd_conversation_obtain(struct bdd_instance *instance);
 void bdd_conversation_release(struct bdd_instance *instance, struct bdd_conversation **conversation);
 void bdd_conversation_deinit(struct bdd_conversation *conversation);
 void bdd_conversation_link(struct bdd_instance *instance, struct bdd_conversation **conversation);
+bool bdd_io_has_epoll_state(struct bdd_io *io);
+uint8_t bdd_io_wait_state(struct bdd_io *io);
 
 #endif

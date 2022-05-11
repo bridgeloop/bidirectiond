@@ -11,7 +11,7 @@ struct bdd_conversation;
 struct bdd_service {
 	bool (*serve)(struct bdd_conversation *conversation, void *buf, size_t buf_size);
 
-	void (*io_removed)(struct bdd_conversation *conversation, bdd_io_id io_id, short int revents);
+	void (*io_removed)(struct bdd_conversation *conversation, bdd_io_id io_id);
 	void (*io_established)(struct bdd_conversation *conversation, bdd_io_id io_id);
 
 	bool (*conversation_init)(

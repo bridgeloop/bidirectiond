@@ -109,6 +109,7 @@ void *bdd_accept(struct bdd_instance *instance) {
 	}
 	BDD_DEBUG_LOG("accepted tcp connection\n");
 
+	// to-do: non-blocking here
 	fcntl(cl_socket, F_SETFL, fcntl(cl_socket, F_GETFL, 0) & ~(O_NONBLOCK));
 	setsockopt(cl_socket, SOL_SOCKET, SO_SNDTIMEO, &(instance->client_timeout), sizeof(instance->client_timeout));
 	setsockopt(cl_socket, SOL_SOCKET, SO_RCVTIMEO, &(instance->client_timeout), sizeof(instance->client_timeout));

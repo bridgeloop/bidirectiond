@@ -25,6 +25,7 @@ struct bdd_instance {
 	int epoll_fd;
 	int n_epoll_oevents;
 	struct epoll_event *epoll_oevents;
+	int epoll_timeout;
 
 	void *name_descriptions;
 

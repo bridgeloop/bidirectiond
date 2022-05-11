@@ -127,6 +127,7 @@ struct bdd_instance *bdd_instance_alloc(void) {
 	instance->epoll_fd = -1;
 	instance->n_epoll_oevents = 0;
 	instance->epoll_oevents = NULL;
+	instance->epoll_timeout = -1;
 	// name_descriptions
 	instance->name_descriptions = NULL;
 	// client timeout
@@ -223,6 +224,7 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 	if ((instance->epoll_oevents = malloc(sizeof(struct epoll_event) * settings.n_epoll_oevents)) == NULL) {
 		goto err;
 	}
+	instance->epoll_timeout = settings.epoll_timeout;
 	// name_descriptions
 	instance->name_descriptions = settings.name_descriptions;
 	// client timeout

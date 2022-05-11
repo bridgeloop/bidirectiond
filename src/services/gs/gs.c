@@ -31,17 +31,22 @@ static char serve(struct bdd_conversation *conversation, void *buf, size_t buf_s
 	} while (poll_io.revents & POLLIN);
 	return 0;
 }
+void general_service__io_removed(struct bdd_conversation *conversation, bdd_io_id io_id) {
+	// to-do: does this even work? it's bad anyway, but does it actually even work at all?
+	bdd_io_remove(conversation, io_id ^ 1);
+	return;
+}
 bool general_service__serve(struct bdd_conversation *conversation, void *buf, size_t buf_size) {
 	struct general_service__associated *associated = bdd_get_associated(conversation);
 	struct bdd_poll_io poll_ios[] = {
 		{
 			.io_id = associated->client,
-			.events = POLLIN,
+			.events = POLLIN | POLLRDHUP,
 			.revents = 0,
 		},
 		{
 			.io_id = associated->service,
-			.events = POLLIN,
+			.events = POLLIN | POLLRDHUP,
 			.revents = 0,
 		},
 	};

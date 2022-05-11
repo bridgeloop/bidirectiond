@@ -9,17 +9,12 @@
 #define BDD_IO_STATE_CONNECTING 2
 #define BDD_IO_STATE_SSL_CONNECTING 3
 #define BDD_IO_STATE_ESTABLISHED 4
-#define BDD_IO_STATE_BROKEN 5
 
 #define BDD_IO_CONNECTING_SUBSTATE_AGAIN 0
 #define BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS 1
 
 #define BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_READ 0
 #define BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_WRITE 1
-
-#define BDD_IO_WAIT_DONT 0
-#define BDD_IO_WAIT_FOR_ESTABLISHMENT 1
-#define BDD_IO_WAIT_FOR_RDHUP 2
 
 struct bdd_io {
 	uint16_t
@@ -31,7 +26,9 @@ struct bdd_io {
 		ssl : 1,
 		ssl_shut : 1,
 
-		wait : 2;
+		wait : 2,
+
+		in_epoll : 1;
 	union {
 		int fd;
 		SSL *ssl;

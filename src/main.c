@@ -33,7 +33,8 @@ struct bdd_settings settings = {
 	.n_epoll_oevents = 0x200,
 	.buf_sz = 0x800,
 	.n_worker_threads = 16,
-	.client_timeout = 12000,
+	.client_timeout = 8000,
+	.epoll_timeout = -1,
 	.sv_socket = -1,
 	.use_work_queues = false,
 };
@@ -112,17 +113,17 @@ int main(int argc, char *argv[], char *env[]) {
 	setpwent();
 	for (struct passwd *pw = getpwent(); pw != NULL; pw = getpwent()) {
 		if (strcmp(pw->pw_name, BIDIRECTIOND_USERNAME) == 0) {
-#ifdef BIDIRECTIOND_SU
+			#ifdef BIDIRECTIOND_SU
 			nuid = pw->pw_uid;
 			ngid = pw->pw_gid;
-#else
+			#else
 			if (nuid == 0) {
 				nuid = pw->pw_uid;
 			}
 			if (ngid == 0) {
 				ngid = pw->pw_gid;
 			}
-#endif
+			#endif
 			break;
 		}
 	}
@@ -131,13 +132,13 @@ int main(int argc, char *argv[], char *env[]) {
 	struct locked_hashmap *lh = hashmap_lock(settings.name_descriptions);
 	size_t big_alloc_sz = 0;
 
-#define EXPECT_ARGS(n) \
+	#define EXPECT_ARGS(n) \
 	for (size_t idx = 1; idx <= n; ++idx) { \
-		if (arg[idx] == NULL || arg[idx][0] == '-') { \
+		if (arg[idx] == NULL || arg[idx][0] == '-') { /* to-do: negative numbers */\
 			goto main__arg_fuck; \
 		} \
 	}
-main__arg_iter:;
+	main__arg_iter:;
 	while ((*arg) != NULL) {
 		if (strcmp((*arg), "--n-connection-threads") == 0 || strcmp((*arg), "-t") == 0) {
 			EXPECT_ARGS(1);
@@ -167,6 +168,10 @@ main__arg_iter:;
 		} else if (strcmp((*arg), "--server-tcp-port") == 0 || strcmp((*arg), "-p") == 0) {
 			EXPECT_ARGS(1);
 			stousi(&(port), arg[1]);
+			arg += 2;
+		}  else if (strcmp((*arg), "--epoll-timeout") == 0) {
+			EXPECT_ARGS(1);
+			stoi(&(settings.epoll_timeout), arg[1]);
 			arg += 2;
 		} else if (strcmp((*arg), "--max-conversations") == 0) {
 			EXPECT_ARGS(1);
@@ -236,7 +241,7 @@ main__arg_iter:;
 				goto main__arg_creds_err;
 			}
 
-main__arg_creds_err:;
+			main__arg_creds_err:;
 			if (x509 != NULL) {
 				X509_free(x509);
 			}
@@ -296,11 +301,13 @@ main__arg_creds_err:;
 						}
 					}
 			}
-main__arg_fuck:;
+			main__arg_fuck:;
 			puts("argument parsing failed\n"
 			     "-t: set the amount of worker threads\n"
 			     "--client-timeout: set the timeout (in ms) for "
 			     "client socket i/o\n"
+			     "--epoll-timeout: set the timeout (in ms) for "
+			     "bdd_conversation structs\n"
 			     "-l: set the rlimits for open files (soft limit, "
 			     "hard limit)\n"
 			     "-b: set the size of the large worker buffers\n"
@@ -465,7 +472,7 @@ main__arg_fuck:;
 		}
 	}
 
-clean_up:;
+	clean_up:;
 	if (bdd_instance != NULL) {
 		bdd_stop(bdd_instance);
 		bdd_wait(bdd_instance);

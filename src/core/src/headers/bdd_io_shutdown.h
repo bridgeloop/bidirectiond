@@ -5,7 +5,7 @@
 struct bdd_conversation;
 
 enum bdd_io_shutdown_state {
-	bdd_io_shutdown_broken,
+	bdd_io_shutdown_err,
 	bdd_io_shutdown_again,
 	bdd_io_shutdown_success,
 };

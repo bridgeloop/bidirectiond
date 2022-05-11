@@ -43,7 +43,6 @@ void bdd_name_description_clean_services(struct bdd_name_description *name_descr
 	return;
 }
 
-
 bool bdd_name_description_add_service_instance(
 	struct bdd_name_description *name_description,
 	struct bdd_service_instance *service_inst
@@ -272,4 +271,4 @@ bool bdd_name_descriptions_create_ssl_ctx(
 
 struct hashmap *bdd_name_descriptions_create(void) {
 	return hashmap_create((void (*)(void *)) & (bdd_name_description_destroy));
-};
+}

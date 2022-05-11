@@ -11,6 +11,7 @@
 #include "src/headers/bdd_io_connect.h"
 #include "src/headers/bdd_poll.h"
 #include "src/headers/bdd_io_shutdown.h"
+#include "src/headers/bdd_io_wait.h"
 
 struct bdd_conversation;
 
