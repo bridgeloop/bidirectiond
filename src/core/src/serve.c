@@ -88,15 +88,15 @@ void *bdd_serve(struct bdd_instance *instance) {
 				}
 
 				bool s_ev = false;
-				short int ev;
+				short int ev = 0;
 				if (found_wait_io || (wait && bdd_io_wait_state(io) == BDD_IO_WAIT_DONT)) {
-					ev = 0; // implicit EPOLLHUP and EPOLLERR
+					// implicit EPOLLHUP and EPOLLERR
 					s_ev = true;
 				} else if (wait) {
 					assert(!found_wait_io && bdd_io_wait_state(io) != BDD_IO_WAIT_DONT);
 					found_wait_io = true;
 					if (bdd_io_wait_state(io) == BDD_IO_WAIT_RDHUP) {
-						ev = EPOLLRDHUP;
+						ev |= EPOLLRDHUP;
 						s_ev = true;
 					} else {
 						assert(bdd_io_wait_state(io) == BDD_IO_WAIT_ESTABLISHED);
@@ -108,14 +108,17 @@ void *bdd_serve(struct bdd_instance *instance) {
 						(io->state == BDD_IO_STATE_CONNECTING && io->substate == BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS) ||
 						(io->state == BDD_IO_STATE_SSL_CONNECTING && io->substate == BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_WRITE)
 					) {
-						ev = EPOLLOUT;
+						ev |= EPOLLOUT;
 					} else {
 						assert(
 							(io->state == BDD_IO_STATE_SSL_CONNECTING && io->state == BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_READ) ||
 							io->state == BDD_IO_STATE_ESTABLISHED
 						);
-						ev = EPOLLIN;
+						ev |= EPOLLIN;
 					}
+					#ifndef BIDIRECTIOND_NO_RDHUP_SERVE
+					ev |= EPOLLRDHUP;
+					#endif
 				}
 				struct epoll_event event = {
 					.events = ev,
