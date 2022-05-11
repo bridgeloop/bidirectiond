@@ -16,7 +16,7 @@ struct general_service__associated {
 static char serve(struct bdd_conversation *conversation, void *buf, size_t buf_size, bdd_io_id from, bdd_io_id to) {
 	struct bdd_poll_io poll_io = {
 		.io_id = from,
-		.events = POLLIN,
+		.events = POLLIN | POLLRDHUP,
 		.revents = 0,
 	};
 	do {
@@ -26,6 +26,9 @@ static char serve(struct bdd_conversation *conversation, void *buf, size_t buf_s
 		}
 		if (bdd_write(conversation, to, buf, n) <= 0) {
 			return 2;
+		}
+		if (poll_io.revents & POLLRDHUP) {
+			return 1;
 		}
 		bdd_poll(conversation, &(poll_io), 1, 0);
 	} while (poll_io.revents & POLLIN);
