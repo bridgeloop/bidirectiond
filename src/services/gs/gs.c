@@ -103,6 +103,9 @@ bool general_service__conversation_init(
 			continue;
 		}
 
+		if (info->tls_name != NULL) {
+			bdd_io_prep_ssl(conversation, service, info->tls_name);
+		}
 		if (bdd_io_connect(conversation, service, addrinfo->ai_addr, addrinfo->ai_addrlen) == bdd_io_connect_established) {
 			goto created;
 		}
@@ -112,7 +115,6 @@ bool general_service__conversation_init(
 	return false;
 
 	created:;
-	// to-do: tls
 	struct general_service__associated *associated = malloc(sizeof(struct general_service__associated));
 	if (associated == NULL) {
 		// bdd-core will destroy the io
