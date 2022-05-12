@@ -135,10 +135,10 @@ int main(int argc, char *argv[], char *env[]) {
 	#define EXPECT_ARGS(n) \
 	for (size_t idx = 1; idx <= n; ++idx) { \
 		if (arg[idx] == NULL || arg[idx][0] == '-') { /* to-do: negative numbers */\
-			goto main__arg_fuck; \
+			goto arg_err; \
 		} \
 	}
-	main__arg_iter:;
+	arg_iter:;
 	while ((*arg) != NULL) {
 		if (strcmp((*arg), "--n-connection-threads") == 0 || strcmp((*arg), "-t") == 0) {
 			EXPECT_ARGS(1);
@@ -200,7 +200,7 @@ int main(int argc, char *argv[], char *env[]) {
 			FILE *file = fopen(arg[1], "r");
 			if (file == NULL) {
 				fprintf(stderr, "couldn't access certificate file (%s)\n", arg[1]);
-				goto main__arg_creds_err;
+				goto arg_creds_err;
 			}
 
 			x509 = PEM_read_X509(file, NULL, NULL, NULL);
@@ -208,7 +208,7 @@ int main(int argc, char *argv[], char *env[]) {
 
 			if (x509 == NULL) {
 				fprintf(stderr, "invalid certificate file (%s)\n", arg[1]);
-				goto main__arg_creds_err;
+				goto arg_creds_err;
 			}
 
 			// read private key //
@@ -221,7 +221,7 @@ int main(int argc, char *argv[], char *env[]) {
 			file = fopen(arg[2], "r");
 			if (file == NULL) {
 				fprintf(stderr, "couldn't access private key file (%s)\n", arg[1]);
-				goto main__arg_creds_err;
+				goto arg_creds_err;
 			}
 
 			pkey = PEM_read_PrivateKey(file, NULL, &(cp_pwd), &(cp_ctx));
@@ -229,19 +229,19 @@ int main(int argc, char *argv[], char *env[]) {
 
 			if (pkey == NULL) {
 				fprintf(stderr, "invalid private key file (%s)\n", arg[1]);
-				goto main__arg_creds_err;
+				goto arg_creds_err;
 			}
 			if (!cp_ctx.success) {
 				fputs("the private key file must be encrypted\n", stderr);
-				goto main__arg_creds_err;
+				goto arg_creds_err;
 			}
 
 			if (!bdd_name_descriptions_create_ssl_ctx(lh, &(x509), &(pkey))) {
 				fputs("seemingly invalid certificate file\n", stderr);
-				goto main__arg_creds_err;
+				goto arg_creds_err;
 			}
 
-			main__arg_creds_err:;
+			arg_creds_err:;
 			if (x509 != NULL) {
 				X509_free(x509);
 			}
@@ -294,14 +294,14 @@ int main(int argc, char *argv[], char *env[]) {
 								    n,
 								    (const char **)arg
 							    )) {
-								goto main__arg_fuck;
+								goto arg_err;
 							}
 							arg = &(arg[n]);
-							goto main__arg_iter;
+							goto arg_iter;
 						}
 					}
 			}
-			main__arg_fuck:;
+			arg_err:;
 			puts("argument parsing failed\n"
 			     "-t: set the amount of worker threads\n"
 			     "--client-timeout: set the timeout (in ms) for "

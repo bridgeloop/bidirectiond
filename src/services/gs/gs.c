@@ -160,17 +160,17 @@ static bool handle_s(
 	};
 	struct addrinfo *res = NULL;
 	if (getaddrinfo(addr, port, &(hints), &(res)) != 0) {
-		goto handle_s__err;
+		goto err;
 	}
 	info->addrinfo = res;
 	res = NULL;
 
 	if (!bdd_name_descriptions_add_service_instance(name_descriptions, scope, strlen(scope), service, (void *)&(info))) {
-		goto handle_s__err;
+		goto err;
 	}
 	return true;
 
-handle_s__err:;
+	err:;
 	general_service__instance_info_destructor(info);
 	return false;
 }

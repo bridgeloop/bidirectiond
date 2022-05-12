@@ -59,7 +59,7 @@ void input_processor(int sfd, char *br_buf, int br_buf_sz) {
 		},
 	};
 
-input_processor__process:;
+	process:;
 	uint8_t n_matches = sizeof(match_list) / sizeof(match_list[0]);
 	uint8_t match;
 	bool matches[sizeof(match_list) / sizeof(match_list[0])];
@@ -69,30 +69,30 @@ input_processor__process:;
 	for (uint8_t it = 0;; ++it) {
 		match = 0;
 		if (it == 0xFF) {
-			goto input_processor__process;
+			goto process;
 		}
 		if (!buffered_read()) {
-			goto input_processor__err;
+			goto err;
 		}
 		if (br_ctx.byte == 1) {
-			goto input_processor__process;
+			goto process;
 		}
 		if (br_ctx.byte == 0) {
 			if (it == 0) {
-				goto input_processor__wait;
+				goto wait;
 			}
 			for (typeof(match) rmatch = 0; rmatch < n_matches; ++rmatch) {
 				match = n_matches - 1 - rmatch;
 				if (matches[match]) {
-					goto input_processor__matched;
+					goto matched;
 				}
 			}
-			goto input_processor__wait;
+			goto wait;
 		}
 		for (; match < n_matches; ++match) {
 			if (it >= match_list[match].str_sz) {
 				if ((n_matches = match) == 0) {
-					goto input_processor__process;
+					goto process;
 				}
 				break;
 			}
@@ -102,7 +102,7 @@ input_processor__process:;
 		}
 	}
 
-input_processor__matched:;
+	matched:;
 	if (match == 0 /* TLS_PEM_LOAD */) {
 		uint8_t e = 0;
 
@@ -112,44 +112,44 @@ input_processor__matched:;
 
 		bio = BIO_new(BIO_s_mem());
 		if (bio == NULL) {
-			goto input_processor__tls_pem_load_err;
+			goto tls_pem_load_err;
 		}
 
 		for (;;) {
 			if (!buffered_read()) {
 				e |= 0b1;
-				goto input_processor__tls_pem_load_err;
+				goto tls_pem_load_err;
 			}
 			if (br_ctx.byte == 0) {
 				break;
 			}
 			if (br_ctx.byte == 1 || BIO_write(bio, &(br_ctx.byte), 1) != 1) {
-				goto input_processor__tls_pem_load_err;
+				goto tls_pem_load_err;
 			}
 		}
 
 		// deserialize the certificate
 		x509 = PEM_read_bio_X509(bio, NULL, NULL, "");
 		if (x509 == NULL) {
-			goto input_processor__tls_pem_load_err;
+			goto tls_pem_load_err;
 		}
 
 		BIO_free(bio);
 		bio = BIO_new(BIO_s_mem());
 		if (bio == NULL) {
-			goto input_processor__tls_pem_load_err;
+			goto tls_pem_load_err;
 		}
 
 		for (;;) {
 			if (!buffered_read()) {
 				e |= 0b1;
-				goto input_processor__tls_pem_load_err;
+				goto tls_pem_load_err;
 			}
 			if (br_ctx.byte == 0) {
 				break;
 			}
 			if (br_ctx.byte == 1 || BIO_write(bio, &(br_ctx.byte), 1) != 1) {
-				goto input_processor__tls_pem_load_err;
+				goto tls_pem_load_err;
 			}
 		}
 
@@ -165,7 +165,7 @@ input_processor__matched:;
 			char env_variable_name[0x100];
 			for (size_t idx = 0;; ++idx) {
 				if (idx == sizeof(env_variable_name)) {
-					goto input_processor__tls_pem_load_err;
+					goto tls_pem_load_err;
 				}
 				env_variable_name[idx] = br_ctx.byte;
 				if (br_ctx.byte == 0) {
@@ -173,11 +173,11 @@ input_processor__matched:;
 					break;
 				}
 				if (br_ctx.byte == 1) {
-					goto input_processor__tls_pem_load_err;
+					goto tls_pem_load_err;
 				}
 				if (!buffered_read()) {
 					e |= 0b1;
-					goto input_processor__tls_pem_load_err;
+					goto tls_pem_load_err;
 				}
 			}
 		}
@@ -185,7 +185,7 @@ input_processor__matched:;
 		// deserialize the private key
 		pkey = PEM_read_bio_PrivateKey(bio, NULL, cp_pwd, &(cp_ctx));
 		if (pkey == NULL) {
-			goto input_processor__tls_pem_load_err;
+			goto tls_pem_load_err;
 		}
 
 		struct locked_hashmap *lh = hashmap_lock(settings.name_descriptions);
@@ -194,7 +194,7 @@ input_processor__matched:;
 		}
 		locked_hashmap_unlock(&(lh));
 
-input_processor__tls_pem_load_err:;
+		tls_pem_load_err:;
 		if (bio != NULL) {
 			BIO_free(bio);
 		}
@@ -210,16 +210,16 @@ input_processor__tls_pem_load_err:;
 			puts("failed to add SSL_CTX");
 		}
 		if (e & 0b1) {
-			goto input_processor__err;
+			goto err;
 		}
 	} else if (match == 1) {
 		puts("input_processor got PING!");
 	}
 
-input_processor__wait:;
+	wait:;
 	while (br_ctx.byte != 1) {
 		if (!buffered_read()) {
-			goto input_processor__err;
+			goto err;
 		}
 		if (br_ctx.byte == 1) {
 			break;
@@ -227,9 +227,9 @@ input_processor__wait:;
 		puts("extraneous byte sent to input_processor");
 	}
 
-	goto input_processor__process;
+	goto process;
 
-input_processor__err:;
+	err:;
 	shutdown(fd, SHUT_RDWR);
 	close(fd);
 	return;
