@@ -165,7 +165,7 @@ static bool handle_s(
 	info->addrinfo = res;
 	res = NULL;
 
-	if (!bdd_name_descriptions_add_service_instance(name_descriptions, scope, strlen(scope), service, &(info))) {
+	if (!bdd_name_descriptions_add_service_instance(name_descriptions, scope, strlen(scope), service, (void *)&(info))) {
 		goto handle_s__err;
 	}
 	return true;

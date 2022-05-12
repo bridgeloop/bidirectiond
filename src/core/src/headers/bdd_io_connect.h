@@ -6,6 +6,7 @@
 struct bdd_conversation;
 enum bdd_io_connect_status {
 	bdd_io_connect_err,
+	bdd_io_connect_again,
 	bdd_io_connect_connecting,
 	bdd_io_connect_established,
 };
