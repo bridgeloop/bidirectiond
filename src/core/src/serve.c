@@ -166,7 +166,6 @@ void *bdd_serve(struct bdd_instance *instance) {
 		bdd_thread_exit(instance);
 	}
 
-	// to-do: implement io wait
 	for (int idx = 0; idx < n_events; ++idx) {
 		struct epoll_event *event = &(instance->epoll_oevents[idx]);
 		struct bdd_conversation *conversation = event->data.ptr;
