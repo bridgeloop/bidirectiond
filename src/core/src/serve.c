@@ -318,6 +318,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 			BDD_DEBUG_LOG("found broken conversation struct\n");
 			conversation->next = conversations_to_discard;
 			conversations_to_discard = conversation;
+			continue;
 		}
 
 		BDD_DEBUG_LOG("found working conversation struct\n");

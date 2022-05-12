@@ -35,7 +35,6 @@ static char serve(struct bdd_conversation *conversation, void *buf, size_t buf_s
 	return 0;
 }
 void general_service__io_removed(struct bdd_conversation *conversation, bdd_io_id io_id) {
-	// to-do: does this even work? it's bad anyway, but does it actually even work at all?
 	bdd_io_remove(conversation, io_id ^ 1);
 	return;
 }
