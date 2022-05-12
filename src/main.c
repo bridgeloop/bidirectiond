@@ -134,7 +134,7 @@ int main(int argc, char *argv[], char *env[]) {
 
 	#define EXPECT_ARGS(n) \
 	for (size_t idx = 1; idx <= n; ++idx) { \
-		if (arg[idx] == NULL || arg[idx][0] == '-') { /* to-do: negative numbers */\
+		if (arg[idx] == NULL || (arg[idx][0] == '-' && (arg[idx][1] < '1' || arg[idx][1] > '9'))) {\
 			goto arg_err; \
 		} \
 	}
