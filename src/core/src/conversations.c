@@ -371,7 +371,7 @@ bool bdd_io_prep_ssl(struct bdd_conversation *conversation, bdd_io_id io_id, cha
 	}
 	// hostname vertification
 	SSL_set_hostflags(ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
-	// to-do: does this strdup?
+	// does strdup: https://github.com/openssl/openssl/blob/1c0eede9827b0962f1d752fa4ab5d436fa039da4/crypto/x509/x509_vpm.c#L59
 	if (!SSL_set1_host(ssl, ssl_name)) {
 		goto err;
 	}
