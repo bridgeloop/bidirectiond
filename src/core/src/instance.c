@@ -154,6 +154,7 @@ struct bdd_instance *bdd_instance_alloc(void) {
 	instance->accept.ssl_ctx = NULL;
 	instance->accept.accept_ctx.service_instance = NULL;
 	instance->accept.accept_ctx.protocol_name = NULL;
+	instance->accept.accept_ctx.cstr_protocol_name = NULL;
 	instance->accept.accept_ctx.locked_name_descriptions = NULL;
 	instance->to_epoll.head = NULL;
 	// serve_eventfd

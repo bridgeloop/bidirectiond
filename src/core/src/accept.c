@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <string.h>
 #include <arpa/inet.h>
 
 #include "headers/instance.h"
@@ -15,6 +16,22 @@
 #include "headers/name_descriptions.h"
 #include "headers/bdd_service.h"
 #include "headers/signal.h"
+
+int bdd_alpn_cb(
+	SSL *_,
+	const unsigned char **out,
+	unsigned char *outlen,
+	const unsigned char *__,
+	unsigned int ___,
+	struct bdd_accept_ctx *ctx
+) {
+	if (ctx->protocol_name == NULL) {
+		return SSL_TLSEXT_ERR_NOACK;
+	}
+	*out = ctx->protocol_name + 1;
+	*outlen = ctx->protocol_name[0];
+	return SSL_TLSEXT_ERR_OK;
+}
 
 int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 	const unsigned char *extension;
@@ -36,7 +53,28 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 		name_sz -= 1;
 	}
 
+	const unsigned char *alpn;
+	size_t alpn_sz;
+	if (SSL_client_hello_get0_ext(client_ssl, TLSEXT_TYPE_application_layer_protocol_negotiation, &(alpn), &(alpn_sz)) != 0) {
+		if (alpn_sz <= 3) {
+			goto alpn_err;
+		}
+		if (alpn[0] != 0) { /* to-do: that byte seems to always be a `0`? */
+			goto alpn_err;
+		}
+		if (alpn[1] != alpn_sz - 2) {
+			goto alpn_err;
+		}
+		alpn += 2;
+		alpn_sz -= 2;
+	} else {
+		alpn_err:;
+		alpn = NULL;
+		alpn_sz = 0;
+	}
+
 	uint8_t found_req = 0;
+	SSL_CTX *found_ssl_ctx;
 	for (size_t idx = 0;;) {
 		struct bdd_name_description *name_description = locked_hashmap_get_wl(
 			ctx->locked_name_descriptions,
@@ -46,13 +84,65 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 		if (name_description != NULL) {
 			if (!(found_req & 0b01) && name_description->ssl_ctx != NULL) {
 				found_req |= 0b01;
-				SSL_set_SSL_CTX(client_ssl, name_description->ssl_ctx);
+				SSL_set_SSL_CTX(client_ssl, (found_ssl_ctx = name_description->ssl_ctx));
 			}
-			if (!(found_req & 0b10) && name_description->service_instances != NULL) {
-				found_req |= 0b10;
-				ctx->service_instance = name_description->service_instances;
+			struct bdd_service_instance *inst;
+			if (!(found_req & 0b10) && (inst = name_description->service_instances) != NULL) {
+				const char *cstr_protocol_name = NULL;
+				unsigned short int offset = alpn_sz;
+				struct bdd_service_instance *found = NULL;
+
+				if (alpn == NULL || unlikely(alpn_sz == 0) /* to-do: is that case possible if alpn is non-null? */) {
+					goto skip_alpn;
+				}
+
+				do {
+					assert(inst->service != NULL);
+					const char *const *sp = inst->service->supported_protocols;
+					if (sp == NULL) {
+						if (found == NULL) {
+							found = inst;
+						}
+						goto alpn_find_iter;
+					}
+					for (unsigned char alpn_idx = 0; alpn_idx < offset;) {
+						unsigned char alpn_len = alpn[alpn_idx];
+						if (alpn_len == 0 || alpn_sz - alpn_idx < alpn_len) {
+							return SSL_CLIENT_HELLO_ERROR;
+						}
+						for (size_t sp_idx = 0; sp[sp_idx] != NULL; ++sp_idx) {
+							if (strncmp(&(alpn[alpn_idx + 1]), sp[sp_idx], alpn_len) == 0 && alpn_idx < offset) {
+								cstr_protocol_name = sp[sp_idx];
+								if ((offset = alpn_idx) == 0) {
+									goto found_alp;
+								}
+								found = inst;
+							}
+						}
+						alpn_idx += alpn_len + 1;
+					}
+					alpn_find_iter:;
+					inst = inst->next;
+				} while (inst != NULL);
+
+				if ((inst = found) != NULL) {
+					found_alp:;
+					if (cstr_protocol_name != NULL) {
+						ctx->protocol_name = &(alpn[offset]);
+						ctx->cstr_protocol_name = cstr_protocol_name;
+					}
+					skip_alpn:;
+					assert(inst->service != NULL);
+					found_req |= 0b10;
+					ctx->service_instance = inst;
+				}
 			}
 			if (found_req == 0b11) {
+				if (ctx->protocol_name != NULL) {
+					SSL_CTX_set_alpn_select_cb(found_ssl_ctx, (void *)&(bdd_alpn_cb), (void *)ctx);
+				} else {
+					SSL_CTX_set_alpn_select_cb(found_ssl_ctx, NULL, NULL);
+				}
 				break;
 			}
 		}
@@ -85,6 +175,7 @@ void *bdd_accept(struct bdd_instance *instance) {
 	SSL *client_ssl = NULL;
 	ctx->service_instance = NULL;
 	ctx->protocol_name = NULL;
+	ctx->cstr_protocol_name = NULL;
 	int cl_socket = -1;
 
 #ifdef BIDIRECTIOND_ACCEPT_OCBCNS
@@ -128,7 +219,6 @@ void *bdd_accept(struct bdd_instance *instance) {
 	}
 
 	assert(ctx->service_instance != NULL);
-	// assert(ctx->protocol_name != NULL); // unused variable for now
 
 	struct bdd_service_instance *service_inst = ctx->service_instance;
 #ifndef BIDIRECTIOND_ACCEPT_OCBCNS
@@ -141,7 +231,7 @@ void *bdd_accept(struct bdd_instance *instance) {
 		&(client_ssl),
 		cl_sockaddr,
 		service_inst->service,
-		ctx->protocol_name,
+		ctx->cstr_protocol_name,
 		service_inst->instance_info
 	)) {
 		case (bdd_conversation_init_failed): {

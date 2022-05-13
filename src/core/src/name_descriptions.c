@@ -48,9 +48,9 @@ bool bdd_name_description_add_service_instance(
 	struct bdd_service_instance *service_inst
 ) {
 	struct bdd_service_instance **curr = &(name_description->service_instances);
-	const char **inst_sp = service_inst->service->supported_protocols;
+	const char *const *inst_sp = service_inst->service->supported_protocols;
 	for (; (*curr) != NULL; curr = &((*curr)->next)) {
-		const char **curr_sp = (*curr)->service->supported_protocols;
+		const char *const *curr_sp = (*curr)->service->supported_protocols;
 		if (inst_sp == NULL || curr_sp == NULL) {
 			if (inst_sp == curr_sp) {
 				return false;

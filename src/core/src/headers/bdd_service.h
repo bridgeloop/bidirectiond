@@ -29,9 +29,9 @@ struct bdd_service {
 		size_t n_arguments,
 		const char **arguments
 	);
-	const char **supported_protocols;
-	const char **supported_arguments;
-	const char *arguments_help;
+	const char *const *const supported_protocols;
+	const char *const *const supported_arguments;
+	const char *const arguments_help;
 
 	bdd_io_id n_max_io;
 };

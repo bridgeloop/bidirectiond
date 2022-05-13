@@ -104,7 +104,7 @@ bool general_service__conversation_init(
 		}
 
 		if (info->tls_name != NULL) {
-			bdd_io_prep_ssl(conversation, service, info->tls_name);
+			bdd_io_prep_ssl(conversation, service, (void *)info->tls_name);
 		}
 		if (bdd_io_connect(conversation, service, addrinfo->ai_addr, addrinfo->ai_addrlen) == bdd_io_connect_established) {
 			goto created;
