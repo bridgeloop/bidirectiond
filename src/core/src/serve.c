@@ -244,7 +244,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 						#endif
 					}
 					#ifdef BIDIRECTIOND_RDHUP_SERVE
-					serve = true;
+					any_with_potential_to_serve = serve = true;
 					#endif
 				}
 				if (poll_io.revents & POLLIN) {
@@ -318,9 +318,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 			}
 		}
 
-		if (
-			!any_with_potential_to_serve
-		) {
+		if (!any_with_potential_to_serve) {
 			BDD_DEBUG_LOG("found broken conversation struct\n");
 			conversation->next = conversations_to_discard;
 			conversations_to_discard = conversation;
