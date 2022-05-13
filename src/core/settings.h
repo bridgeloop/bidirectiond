@@ -13,7 +13,7 @@ struct bdd_instance *bdd_go(struct bdd_settings settings);
 void bdd_wait(struct bdd_instance *instance);
 void bdd_destroy(struct bdd_instance *instance);
 
-bool bdd_name_descriptions_create_ssl_ctx(
+bool bdd_name_descriptions_use_cert_pkey(
 	struct locked_hashmap *name_descriptions,
 	X509 **x509_ref,
 	EVP_PKEY **pkey_ref

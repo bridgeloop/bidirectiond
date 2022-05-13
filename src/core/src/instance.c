@@ -276,6 +276,7 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 	if ((instance->accept.ssl_ctx = bdd_ssl_ctx_skel()) == NULL) {
 		goto err;
 	}
+	SSL_CTX_set_alpn_select_cb(instance->accept.ssl_ctx, (void *)bdd_alpn_cb, &(instance->accept.accept_ctx));
 	SSL_CTX_set_client_hello_cb(instance->accept.ssl_ctx, (void *)bdd_hello_cb, &(instance->accept.accept_ctx));
 	// serve
 	if ((instance->serve_eventfd = eventfd(0, EFD_NONBLOCK)) < 0) {

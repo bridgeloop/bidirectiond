@@ -18,11 +18,11 @@
 #include "headers/signal.h"
 
 int bdd_alpn_cb(
-	SSL *_,
+	SSL *client_ssl,
 	const unsigned char **out,
 	unsigned char *outlen,
-	const unsigned char *__,
-	unsigned int ___,
+	const unsigned char *_,
+	unsigned int __,
 	struct bdd_accept_ctx *ctx
 ) {
 	if (ctx->protocol_name == NULL) {
@@ -74,7 +74,6 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 	}
 
 	uint8_t found_req = 0;
-	SSL_CTX *found_ssl_ctx;
 	for (size_t idx = 0;;) {
 		struct bdd_name_description *name_description = locked_hashmap_get_wl(
 			ctx->locked_name_descriptions,
@@ -82,9 +81,10 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 			name_sz
 		);
 		if (name_description != NULL) {
-			if (!(found_req & 0b01) && name_description->ssl_ctx != NULL) {
+			if (!(found_req & 0b01) && name_description->x509 != NULL) {
 				found_req |= 0b01;
-				SSL_set_SSL_CTX(client_ssl, (found_ssl_ctx = name_description->ssl_ctx));
+				SSL_use_certificate(client_ssl, name_description->x509);
+				SSL_use_PrivateKey(client_ssl, name_description->pkey);
 			}
 			struct bdd_service_instance *inst;
 			if (!(found_req & 0b10) && (inst = name_description->service_instances) != NULL) {
@@ -138,11 +138,6 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 				}
 			}
 			if (found_req == 0b11) {
-				if (ctx->protocol_name != NULL) {
-					SSL_CTX_set_alpn_select_cb(found_ssl_ctx, (void *)&(bdd_alpn_cb), (void *)ctx);
-				} else {
-					SSL_CTX_set_alpn_select_cb(found_ssl_ctx, NULL, NULL);
-				}
 				break;
 			}
 		}

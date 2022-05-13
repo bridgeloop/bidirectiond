@@ -593,6 +593,7 @@ enum bdd_conversation_init_status bdd_conversation_init(
 
 	conversation->n_waiting = 0;
 	conversation->release = 0;
+	conversation->noatime = 0;
 
 	conversation->service = service;
 

@@ -14,18 +14,21 @@ struct bdd_name_description *bdd_name_description_alloc(void) {
 	if (name_description == NULL) {
 		return NULL;
 	}
-	name_description->ssl_ctx = NULL;
+	name_description->x509 = NULL;
+	name_description->pkey = NULL;
 	name_description->service_instances = NULL;
 	return name_description;
 }
 
-void bdd_name_description_clean_ssl_ctx(struct bdd_name_description *name_description) {
-	if (name_description->ssl_ctx != NULL) {
+void bdd_name_description_clean_cert_pkey(struct bdd_name_description *name_description) {
+	if (name_description->x509 != NULL) {
 		// misleading function name; it actually
-		// decs the ref count and frees the ssl_ctx
+		// decs the ref count and frees the shit
 		// if the rc hits 0
-		SSL_CTX_free(name_description->ssl_ctx);
-		name_description->ssl_ctx = NULL;
+		X509_free(name_description->x509);
+		EVP_PKEY_free(name_description->pkey);
+		name_description->x509 = NULL;
+		name_description->pkey = NULL;
 	}
 	return;
 }
@@ -69,15 +72,16 @@ bool bdd_name_description_add_service_instance(
 	return true;
 }
 
-void bdd_name_description_set_ssl_ctx(struct bdd_name_description *name_description, SSL_CTX *ssl_ctx) {
-	bdd_name_description_clean_ssl_ctx(name_description);
-	name_description->ssl_ctx = ssl_ctx;
+void bdd_name_description_set_cert_pkey(struct bdd_name_description *name_description, X509 *x509, EVP_PKEY *pkey) {
+	bdd_name_description_clean_cert_pkey(name_description);
+	name_description->x509 = x509;
+	name_description->pkey = pkey;
 	return;
 }
 
 void bdd_name_description_destroy(struct bdd_name_description *name_description) {
 	bdd_name_description_clean_services(name_description);
-	bdd_name_description_clean_ssl_ctx(name_description);
+	bdd_name_description_clean_cert_pkey(name_description);
 	free(name_description);
 	return;
 }
@@ -145,15 +149,16 @@ bool bdd_name_descriptions_add_service_instance(
 }
 
 // internal function
-bool bdd_name_descriptions_set_ssl_ctx(
+bool bdd_name_descriptions_set_cert_pkey(
 	struct locked_hashmap *name_descriptions,
 	const char *scope,
 	size_t scope_sz,
-	SSL_CTX *ssl_ctx
+	X509 *x509,
+	EVP_PKEY *pkey
 ) {
 	bdd_name_descriptions();
 
-	bdd_name_description_set_ssl_ctx(name_description, ssl_ctx);
+	bdd_name_description_set_cert_pkey(name_description, x509, pkey);
 
 	if (created_name_description) {
 		if (!locked_hashmap_set_wl(name_descriptions, (char *)scope, scope_sz, name_description, 1)) {
@@ -166,27 +171,13 @@ bool bdd_name_descriptions_set_ssl_ctx(
 }
 
 // exposed function
-bool bdd_name_descriptions_create_ssl_ctx(
+bool bdd_name_descriptions_use_cert_pkey(
 	struct locked_hashmap *name_descriptions,
 	X509 **x509_ref,
 	EVP_PKEY **pkey_ref
 ) {
 	X509 *x509 = *x509_ref;
 	EVP_PKEY *pkey = *pkey_ref;
-
-	SSL_CTX *ctx = bdd_ssl_ctx_skel();
-	if (ctx == NULL) {
-		return false;
-	}
-
-	// up some ref counts
-	// free'ing an SSL_CTX will decrement those ref counts, and
-	// we want the caller to still have control over those pointers
-	// if this function fails
-	X509_up_ref(x509);
-	EVP_PKEY_up_ref(pkey);
-	SSL_CTX_use_certificate(ctx, x509);
-	SSL_CTX_use_PrivateKey(ctx, pkey);
 
 	bool should_up_rc = false;
 	GENERAL_NAMES *dns_alt_names = X509_get_ext_d2i(x509, NID_subject_alt_name, 0, 0);
@@ -202,15 +193,17 @@ bool bdd_name_descriptions_create_ssl_ctx(
 			}
 			ASN1_IA5STRING *asn1_str = entry->d.dNSName;
 			int data_length = asn1_str->length;
-			bool s = bdd_name_descriptions_set_ssl_ctx(
+			bool s = bdd_name_descriptions_set_cert_pkey(
 				name_descriptions,
 				(char *)asn1_str->data,
 				data_length,
-				ctx
+				x509,
+				pkey
 			);
 			if (s) {
 				if (should_up_rc) {
-					SSL_CTX_up_ref(ctx);
+					X509_up_ref(x509);
+					EVP_PKEY_up_ref(pkey);
 				} else {
 					should_up_rc = true;
 				}
@@ -235,15 +228,17 @@ bool bdd_name_descriptions_create_ssl_ctx(
 					continue;
 				}
 				int data_length = asn1_str->length;
-				bool s = bdd_name_descriptions_set_ssl_ctx(
+				bool s = bdd_name_descriptions_set_cert_pkey(
 					name_descriptions,
 					(char *)asn1_str->data,
 					data_length,
-					ctx
+					x509,
+					pkey
 				);
 				if (s) {
 					if (should_up_rc) {
-						SSL_CTX_up_ref(ctx);
+						X509_up_ref(x509);
+						EVP_PKEY_up_ref(pkey);
 					} else {
 						should_up_rc = true;
 					}
@@ -252,18 +247,13 @@ bool bdd_name_descriptions_create_ssl_ctx(
 		}
 	}
 
-	// if `ctx` is not referenced by any hashmap values,
-	// then free `ctx`
 	if (!should_up_rc) {
-		SSL_CTX_free(ctx);
 		// x509 and pkey's ref counts will be the same as
 		// they were before this function was called
 		return false;
 	}
 
-	// decrement ref counts, and invalidate some pointers
-	X509_free(x509);
-	EVP_PKEY_free(pkey);
+	// invalidate some pointers
 	*x509_ref = NULL;
 	*pkey_ref = NULL;
 	return true;

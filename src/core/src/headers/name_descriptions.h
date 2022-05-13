@@ -10,7 +10,8 @@ struct bdd_service_instance {
 	struct bdd_service_instance *next;
 };
 struct bdd_name_description {
-	SSL_CTX *ssl_ctx;
+	X509 *x509;
+	EVP_PKEY *pkey;
 	struct bdd_service_instance *service_instances;
 };
 

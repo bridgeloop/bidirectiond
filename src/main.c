@@ -236,7 +236,7 @@ int main(int argc, char *argv[], char *env[]) {
 				goto arg_creds_err;
 			}
 
-			if (!bdd_name_descriptions_create_ssl_ctx(lh, &(x509), &(pkey))) {
+			if (!bdd_name_descriptions_use_cert_pkey(lh, &(x509), &(pkey))) {
 				fputs("seemingly invalid certificate file\n", stderr);
 				goto arg_creds_err;
 			}

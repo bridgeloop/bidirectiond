@@ -111,8 +111,8 @@ void *bdd_serve(struct bdd_instance *instance) {
 							);
 							ev |= EPOLLIN;
 						}
-						#ifndef BIDIRECTIOND_NO_RDHUP_SERVE
-						ev |= EPOLLRDHUP;
+						#ifdef BIDIRECTIOND_RCIAOIIHRDHUP
+						ev |= EPOLLHUP;
 						#endif
 					}
 					struct epoll_event event = {
@@ -145,7 +145,11 @@ void *bdd_serve(struct bdd_instance *instance) {
 				bdd_conversation_release(instance, &(conversation));
 			} else {
 				conversation->next = NULL;
-				conversation->accessed_at = bdd_time();
+				if (conversation->noatime) {
+					conversation->noatime = 0;
+				} else {
+					conversation->accessed_at = bdd_time();
+				}
 				if (valid_conversations == NULL) {
 					assert(valid_conversations_tail == NULL);
 					conversation->prev = NULL;
@@ -203,7 +207,8 @@ void *bdd_serve(struct bdd_instance *instance) {
 
 		process:;
 		bool serve = false;
-		bool connecting = false;
+		bool progress = false;
+		bool any_with_potential_to_serve = false;
 		for (bdd_io_id io_id = 0; io_id < bdd_conversation_n_max_io(conversation); ++io_id) {
 			struct bdd_io *io = &(conversation->io[io_id]);
 			if (!bdd_io_has_epoll_state(io)) {
@@ -222,9 +227,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 				io->in_epoll = 0;
 			}
 			if (bdd_io_state(io) == BDD_IO_STATE_ESTABLISHED) {
-				if (io->wait == BDD_IO_WAIT_ESTABLISHED) {
-					bdd_io_wait(conversation, io_id, BDD_IO_WAIT_DONT);
-				}
+				assert(io->wait != BDD_IO_WAIT_ESTABLISHED);
 				established:;
 				struct bdd_poll_io poll_io = {
 					.io_id = io_id,
@@ -236,13 +239,16 @@ void *bdd_serve(struct bdd_instance *instance) {
 				if (poll_io.revents & POLLRDHUP) {
 					if (io->wait == BDD_IO_WAIT_RDHUP) {
 						bdd_io_wait(conversation, io_id, BDD_IO_WAIT_DONT);
+						#ifndef BIDIRECTIOND_RDHUP_NO_PROGRESS
+						progress = true;
+						#endif
 					}
-					#ifndef BIDIRECTIOND_NO_RDHUP_SERVE
+					#ifdef BIDIRECTIOND_RDHUP_SERVE
 					serve = true;
 					#endif
 				}
 				if (poll_io.revents & POLLIN) {
-					serve = true;
+					any_with_potential_to_serve = serve = true;
 				} else if (
 					r < 0 ||
 					(poll_io.revents & (
@@ -256,6 +262,8 @@ void *bdd_serve(struct bdd_instance *instance) {
 						conversation->service->io_removed(conversation, io_id);
 						goto process;
 					}
+				} else if (!(poll_io.revents & POLLRDHUP)) {
+					any_with_potential_to_serve = true;
 				}
 			} else {
 				assert(
@@ -264,7 +272,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 				);
 				struct bdd_poll_io poll_io = {
 					.io_id = io_id,
-					.events = POLLIN | POLLOUT,
+					.events = POLLIN | POLLOUT | POLLRDHUP,
 					.revents = 0,
 				};
 				r = bdd_poll(conversation, &(poll_io), 1, 0);
@@ -285,7 +293,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 				) {
 					switch (bdd_io_connect(conversation, io_id, NULL, 0)) {
 						case (bdd_io_connect_established): {
-							connecting = true;
+							progress = true;
 							if (io->wait == BDD_IO_WAIT_ESTABLISHED) {
 								bdd_io_wait(conversation, io_id, BDD_IO_WAIT_DONT);
 							}
@@ -302,7 +310,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 						}
 
 						default: {
-							connecting = true;
+							progress = true;
 							break;
 						}
 					}
@@ -310,14 +318,20 @@ void *bdd_serve(struct bdd_instance *instance) {
 			}
 		}
 
-		if (conversation->n_waiting > 0 || (!serve && connecting)) {
-			bdd_conversation_link(instance, &(conversation));
-			continue;
-		}
-		if (!serve) {
+		if (
+			!any_with_potential_to_serve
+		) {
 			BDD_DEBUG_LOG("found broken conversation struct\n");
 			conversation->next = conversations_to_discard;
 			conversations_to_discard = conversation;
+			continue;
+		}
+
+		if (conversation->n_waiting > 0 || !serve) {
+			if (!progress) {
+				conversation->noatime = 1;
+			}
+			bdd_conversation_link(instance, &(conversation));
 			continue;
 		}
 

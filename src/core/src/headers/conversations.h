@@ -50,8 +50,9 @@ struct bdd_associated {
 struct bdd_conversation {
 	const uint8_t struct_type; // constant - set by bdd_go
 	uint8_t
-		skip : 4, // moved out of the valid_conversations linked list - set by bdd_serve
-		release : 4; // to_epoll processor should release the conversation - set by bdd_conversation_init and bdd_worker
+		skip : 3, // moved out of the valid_conversations linked list - set by bdd_serve
+		release : 3, // to_epoll processor should release the conversation - set by bdd_conversation_init and bdd_worker
+		noatime : 2; // do not update accessed_at - set by bdd_conversation_init and bdd_serve
 
 	// number of bdd_io structs which are in a waiting state
 	// set by services and bdd_serve
