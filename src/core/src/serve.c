@@ -272,7 +272,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 				);
 				struct bdd_poll_io poll_io = {
 					.io_id = io_id,
-					.events = POLLIN | POLLOUT | POLLRDHUP,
+					.events = POLLIN | POLLOUT,
 					.revents = 0,
 				};
 				r = bdd_poll(conversation, &(poll_io), 1, 0);
