@@ -112,7 +112,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 							ev |= EPOLLIN;
 						}
 						#ifdef BIDIRECTIOND_RCIAOIIHRDHUP
-						ev |= EPOLLHUP;
+						ev |= EPOLLRDHUP;
 						#endif
 					}
 					struct epoll_event event = {
