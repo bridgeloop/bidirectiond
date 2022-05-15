@@ -297,7 +297,7 @@ int main(int argc, char *argv[], char *env[]) {
 					}
 			}
 			arg_err:;
-			puts("argument parsing failed\n"
+			fputs("argument parsing failed\n"
 			     "-t: set the amount of worker threads\n"
 			     "--client-timeout: set the timeout (in ms) for "
 			     "client socket i/o\n"
@@ -320,7 +320,7 @@ int main(int argc, char *argv[], char *env[]) {
 			     "that some bidirectiond settings can be modified "
 			     "without restarting\n"
 			     "--n-epoll-oevents: epoll_wait maxevents\n"
-			     "--big-alloc: reserve some memory\n");
+			     "--big-alloc: reserve some memory\n", stdout);
 			for (size_t idx = 0; idx < N_SERVICES; ++idx) {
 				if (services[idx].arguments_help != NULL) {
 					fputs(services[idx].arguments_help, stdout);
