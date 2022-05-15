@@ -17,7 +17,6 @@
 #include "headers/bdd_poll.h"
 #include "headers/bdd_io_remove.h"
 #include "headers/bdd_io_connect.h"
-#include "headers/bdd_io_wait.h"
 #include "headers/bdd_service.h"
 #include "headers/signal.h"
 #include "headers/pollrdhup.h"
@@ -63,104 +62,75 @@ void *bdd_serve(struct bdd_instance *instance) {
 		int r = read(instance->serve_eventfd, &(g), 8);
 		assert(r == 8 || r < 0);
 	}
-	while ((*to_epoll_head) != NULL) {
-		if ((*to_epoll_head)->struct_type == 0) {
+	while ((*to_epoll_head) != NULL) switch ((*to_epoll_head)->struct_type == 0) {
+		case (0): {
 			struct bdd_conversation *conversation = (void *)(*to_epoll_head);
 			(*to_epoll_head) = conversation->next;
+
 			conversation->skip = 0;
 
-			bool broken = true;
+			// add the IOs' fds to epoll
+			// discard the conversation if no IOs are eligible
+			bool any_in_epoll = false;
 
-			if (!conversation->release) {
-				bool wait = conversation->n_waiting > 0;
-				bool found_wait_io = false;
-				for (bdd_io_id idx = 0; idx < bdd_conversation_n_max_io(conversation); ++idx) {
-					struct bdd_io *io = &(conversation->io[idx]);
-					if (!bdd_io_has_epoll_state(io)) {
-						io->in_epoll = 0;
-						continue;
-					}
-					int fd = bdd_io_fd(io);
-
-					bool s_ev = false;
-					short int ev = 0;
-					if (found_wait_io || (wait && bdd_io_wait_state(io) == BDD_IO_WAIT_DONT)) {
-						// implicit EPOLLHUP and EPOLLERR
-						s_ev = true;
-					} else if (wait) {
-						assert(!found_wait_io && bdd_io_wait_state(io) != BDD_IO_WAIT_DONT);
-						found_wait_io = true;
-						if (bdd_io_wait_state(io) == BDD_IO_WAIT_RDHUP) {
-							ev |= EPOLLRDHUP;
-							s_ev = true;
-						} else {
-							assert(bdd_io_wait_state(io) == BDD_IO_WAIT_ESTABLISHED);
-						}
-					}
-					if (!s_ev) {
-						s_ev = true;
-						if (
-							(bdd_io_state(io) == BDD_IO_STATE_CONNECTING && bdd_io_substate(io) == BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS) ||
-							(bdd_io_state(io) == BDD_IO_STATE_SSL_CONNECTING && bdd_io_substate(io) == BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_WRITE)
-						) {
-							ev |= EPOLLOUT;
-						} else {
-							assert(
-								(bdd_io_state(io) == BDD_IO_STATE_SSL_CONNECTING && bdd_io_substate(io) == BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_READ) ||
-								bdd_io_state(io) == BDD_IO_STATE_ESTABLISHED
-							);
-							ev |= EPOLLIN;
-						}
-						#ifdef BIDIRECTIOND_RCIAOIIHRDHUP
-						ev |= EPOLLRDHUP;
-						#endif
-					}
-					struct epoll_event event = {
-						.events = ev,
-						.data = {
-							.ptr = conversation,
-						},
-					};
-					if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
-						for (bdd_io_id idx2 = 0; idx2 < idx; ++idx2) {
-							io = &(conversation->io[idx2]);
-							if (!bdd_io_has_epoll_state(io)) {
-								continue;
-							}
-							fd = bdd_io_fd(io);
-
-							int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
-							assert(r == 0);
-						}
-						broken = true;
-						break;
-					}
-					io->in_epoll = 1;
-					broken = false;
+			for (bdd_io_id idx = 0; idx < bdd_conversation_n_max_io(conversation); ++idx) {
+				struct bdd_io *io = &(conversation->io[idx]);
+				if (!bdd_io_has_epoll_state(io) || io->no_epoll) {
+					io->in_epoll = 0;
+					continue;
 				}
+
+				int fd = bdd_io_fd(io);
+
+				struct epoll_event event = {
+					.events = io->epoll_events,
+					.data = {
+						.ptr = conversation,
+					},
+				};
+				if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
+					for (bdd_io_id idx2 = 0; idx2 < idx; ++idx2) {
+						io = &(conversation->io[idx2]);
+						if (!io->in_epoll) {
+							continue;
+						}
+						fd = bdd_io_fd(io);
+
+						int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+						assert(r == 0);
+					}
+					goto discard_conversation;
+				}
+
+				any_in_epoll = true;
+				io->in_epoll = 1;
 			}
 
-			if (broken) {
-				bdd_conversation_deinit(conversation);
-				bdd_conversation_release(instance, &(conversation));
+			conversation->next = NULL;
+			if (conversation->noatime) {
+				conversation->noatime = 0;
 			} else {
-				conversation->next = NULL;
-				if (conversation->noatime) {
-					conversation->noatime = 0;
-				} else {
-					conversation->accessed_at = bdd_time();
-				}
-				if (valid_conversations == NULL) {
-					assert(valid_conversations_tail == NULL);
-					conversation->prev = NULL;
-					valid_conversations_tail = valid_conversations = conversation;
-				} else {
-					assert(valid_conversations_tail != NULL);
-					(conversation->prev = valid_conversations_tail)->next = conversation;
-					valid_conversations_tail = conversation;
-				}
+				conversation->accessed_at = bdd_time();
 			}
-		} else {
+			if (valid_conversations == NULL) {
+				assert(valid_conversations_tail == NULL);
+				conversation->prev = NULL;
+				valid_conversations_tail = valid_conversations = conversation;
+			} else {
+				assert(valid_conversations_tail != NULL);
+				(conversation->prev = valid_conversations_tail)->next = conversation;
+				valid_conversations_tail = conversation;
+			}
+
+			break;
+
+			discard_conversation:;
+			bdd_conversation_deinit(conversation);
+			bdd_conversation_release(instance, &(conversation));
+
+			break;
+		}
+		default: {
 			abort();
 		}
 	}
@@ -205,133 +175,50 @@ void *bdd_serve(struct bdd_instance *instance) {
 		}
 		conversation->next = NULL;
 
-		process:;
-		bool serve = false;
-		bool progress = false;
-		bool any_with_potential_to_serve = false;
-		for (bdd_io_id io_id = 0; io_id < bdd_conversation_n_max_io(conversation); ++io_id) {
-			struct bdd_io *io = &(conversation->io[io_id]);
-			if (!bdd_io_has_epoll_state(io)) {
+		assert(conversation->io != NULL);
+		bdd_io_id n_io = bdd_conversation_n_max_io(conversation);
+		struct bdd_io *io = conversation->io;
+		short int *revents_list = (void *)&(conversation->io[n_io]);
+		struct bdd_poll_io poll_io = {
+			.events = POLLIN | POLLOUT | POLLRDHUP,
+		};
+
+		#ifndef NDEBUG
+		bool any_with_events = false;
+		#endif
+		for (bdd_io_id idx = 0; idx < n_io; ++idx) {
+			bool in_epoll = io[idx].in_epoll;
+			io[idx].in_epoll = 0;
+			if (!io[idx].in_epoll) {
+				no_events:;
+				revents_list[idx] = 0;
 				continue;
 			}
-			int fd;
-			if (io->ssl) {
-				fd = SSL_get_fd(io->io.ssl);
-			} else {
-				fd = io->io.fd;
+			poll_io.io_id = idx;
+			int r = bdd_poll(conversation, &(poll_io), 1, 0);
+			if (r < 0) {
+				conversation->next = conversations_to_discard;
+				conversations_to_discard = conversation;
+				goto events_iter;
 			}
-			int r;
-			if (io->in_epoll) {
-				r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
-				assert(r == 0);
-				io->in_epoll = 0;
+			if (r == 0) {
+				goto no_events;
 			}
-			if (bdd_io_state(io) == BDD_IO_STATE_ESTABLISHED) {
-				assert(io->wait != BDD_IO_WAIT_ESTABLISHED);
-				established:;
-				struct bdd_poll_io poll_io = {
-					.io_id = io_id,
-					.events = POLLIN | POLLRDHUP,
-					.revents = 0,
-				};
-				r = bdd_poll(conversation, &(poll_io), 1, 0);
-				assert(!(poll_io.revents & POLLNVAL));
-				if (poll_io.revents & POLLRDHUP) {
-					if (io->wait == BDD_IO_WAIT_RDHUP) {
-						bdd_io_wait(conversation, io_id, BDD_IO_WAIT_DONT);
-						#ifndef BIDIRECTIOND_RDHUP_NO_PROGRESS
-						progress = true;
-						#endif
-					}
-					#ifdef BIDIRECTIOND_RDHUP_SERVE
-					any_with_potential_to_serve = serve = true;
-					#endif
+			short int revents = poll_io.revents;
+			revents_list[idx] = revents;
+			if (revents & (POLLERR | POLLHUP | POLLRDHUP)) {
+				if (revents & POLLHUP) {
+					io->hup = 1;
 				}
-				if (poll_io.revents & POLLIN) {
-					any_with_potential_to_serve = serve = true;
-				} else if (
-					r < 0 ||
-					(poll_io.revents & (
-						POLLERR /* rst sent or received */ |
-						POLLHUP /* socket has been shut-down in both directions */
-					))
-				) {
-					remove_io:;
-					bdd_io_remove(conversation, io_id);
-					if (conversation->service->io_removed != NULL) {
-						conversation->service->io_removed(conversation, io_id);
-						goto process;
-					}
-				} else if (!(poll_io.revents & POLLRDHUP)) {
-					any_with_potential_to_serve = true;
-				}
-			} else {
-				assert(
-					(bdd_io_state(io) == BDD_IO_STATE_CONNECTING && bdd_io_substate(io) == BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS) ||
-					(bdd_io_state(io) == BDD_IO_STATE_SSL_CONNECTING)
-				);
-				struct bdd_poll_io poll_io = {
-					.io_id = io_id,
-					.events = POLLIN | POLLOUT,
-					.revents = 0,
-				};
-				r = bdd_poll(conversation, &(poll_io), 1, 0);
-				assert(!(poll_io.revents & POLLNVAL));
-				if (
-					r < 0 ||
-					(poll_io.revents & (
-						POLLERR |
-						POLLHUP
-					))
-				) {
-					goto remove_io;
-				}
-				if (
-					(bdd_io_state(io) == BDD_IO_STATE_CONNECTING && bdd_io_substate(io) == BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS && (poll_io.revents & POLLOUT)) ||
-					(bdd_io_state(io) == BDD_IO_STATE_SSL_CONNECTING && bdd_io_substate(io) == BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_READ && (poll_io.revents & POLLIN)) ||
-					(bdd_io_state(io) == BDD_IO_STATE_SSL_CONNECTING && bdd_io_substate(io) == BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_WRITE && (poll_io.revents & POLLOUT))
-				) {
-					switch (bdd_io_connect(conversation, io_id, NULL, 0)) {
-						case (bdd_io_connect_established): {
-							progress = true;
-							if (io->wait == BDD_IO_WAIT_ESTABLISHED) {
-								bdd_io_wait(conversation, io_id, BDD_IO_WAIT_DONT);
-							}
-							if (conversation->service->io_established != NULL) {
-								conversation->service->io_established(conversation, io_id);
-								goto process;
-							}
-							goto established;
-						}
-
-						case (bdd_io_connect_err): {
-							assert(false);
-							goto remove_io;
-						}
-
-						default: {
-							progress = true;
-							break;
-						}
-					}
-				}
+				io->no_epoll = 1;
 			}
+			#ifndef NDEBUG
+			any_with_events = true;
+			#endif
 		}
-
-		if (!any_with_potential_to_serve) {
-			BDD_DEBUG_LOG("found broken conversation struct\n");
-			conversation->next = conversations_to_discard;
-			conversations_to_discard = conversation;
-			continue;
-		}
-
-		if (conversation->n_waiting > 0 || !serve) {
-			if (!progress) {
-				conversation->noatime = 1;
-			}
-			bdd_conversation_link(instance, &(conversation));
-			continue;
-		}
+		#ifndef NDEBUG
+		assert(any_with_events);
+		#endif
 
 		BDD_DEBUG_LOG("found working conversation struct\n");
 
@@ -364,6 +251,8 @@ void *bdd_serve(struct bdd_instance *instance) {
 		worker->conversations_appender = (void *)&(conversation->next);
 		pthread_cond_signal(&(worker->work_cond));
 		pthread_mutex_unlock(&(worker->work_mutex));
+
+		events_iter:;
 	}
 
 	if (epoll_timeout >= 0) {

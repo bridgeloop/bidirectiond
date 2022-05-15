@@ -4,6 +4,7 @@
 #include <stdatomic.h>
 
 #include "headers/workers.h"
+#include "headers/bdd_io.h"
 #include "headers/instance.h"
 #include "headers/debug_log.h"
 #include "headers/unlikely.h"
@@ -15,9 +16,6 @@ void *bdd_worker(struct bdd_worker *worker) {
 	struct bdd_instance *instance = worker->instance;
 
 	pthread_sigmask(SIG_BLOCK, &(instance->sigmask), NULL);
-
-	unsigned char *buf = instance->workers_buf;
-	size_t buf_sz = instance->buf_sz_per_worker;
 
 	work:;
 	if (instance->available_workers.ids != NULL) {
@@ -45,10 +43,11 @@ void *bdd_worker(struct bdd_worker *worker) {
 
 	pthread_mutex_unlock(&(worker->work_mutex));
 
-	assert(conversation->service->serve != NULL);
-	if (!conversation->service->serve(conversation, buf, buf_sz)) {
-		conversation->release = 1;
-	}
+	assert(conversation->service->handle_events != NULL);
+	conversation->service->handle_events(
+		conversation,
+		(void *)&(conversation->io[bdd_conversation_n_max_io(conversation)])
+	);
 
 	bdd_conversation_link(instance, &(conversation));
 

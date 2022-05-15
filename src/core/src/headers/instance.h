@@ -4,7 +4,6 @@
 #include <signal.h>
 #include <stdatomic.h>
 #include <pthread.h>
-#include <sys/epoll.h>
 #include <time.h>
 struct bdd_conversation;
 #include <poll.h>
@@ -68,8 +67,6 @@ struct bdd_instance {
 	unsigned short int n_workers;
 	struct bdd_worker *workers;
 	unsigned short int workers_idx;
-	void *workers_buf;
-	size_t buf_sz_per_worker;
 };
 
 #endif

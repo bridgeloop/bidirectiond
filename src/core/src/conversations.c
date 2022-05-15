@@ -1,4 +1,5 @@
 #include <poll.h>
+#include <sys/epoll.h>
 #include <stdio.h>
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
@@ -18,7 +19,6 @@
 #include "headers/bdd_io_connect.h"
 #include "headers/bdd_pthread_preinit.h"
 #include "headers/bdd_io_shutdown.h"
-#include "headers/bdd_io_wait.h"
 #include "headers/unlikely.h"
 #include "headers/internal_globals.h"
 
@@ -35,43 +35,34 @@ void *bdd_get_associated(struct bdd_conversation *conversation) {
 uint8_t bdd_io_state(struct bdd_io *io) {
 	return io->state;
 }
-uint8_t bdd_io_substate(struct bdd_io *io) {
-	assert(io->state == BDD_IO_STATE_CONNECTING || io->state == BDD_IO_STATE_SSL_CONNECTING);
-	return io->substate;
-}
 void bdd_io_set_state(struct bdd_io *io, uint8_t state) {
 	assert(
 		state == BDD_IO_STATE_UNUSED ||
 		state == BDD_IO_STATE_CREATED ||
+		state == BDD_IO_STATE_CONNECT ||
+		state == BDD_IO_STATE_CONNECTING ||
+		state == BDD_IO_STATE_SSL_CONNECTING ||
 		state == BDD_IO_STATE_ESTABLISHED ||
 		(state == BDD_IO_STATE_BROKEN && (
 			io->state == BDD_IO_STATE_CREATED ||
+			io->state == BDD_IO_STATE_CONNECT||
 			io->state == BDD_IO_STATE_CONNECTING ||
 			io->state == BDD_IO_STATE_SSL_CONNECTING ||
 			io->state == BDD_IO_STATE_ESTABLISHED
 		))
 	);
+	#ifndef NDEBUG
+	if (io->state == BDD_IO_STATE_BROKEN) {
+		assert(state == BDD_IO_STATE_UNUSED);
+	}
+	#endif
 	io->state = state;
-	return;
-}
-void bdd_io_set_state_substate(struct bdd_io *io, uint8_t state, uint8_t substate) {
-	assert(
-		(
-			state == BDD_IO_STATE_CONNECTING &&
-			(substate == BDD_IO_CONNECTING_SUBSTATE_AGAIN || substate == BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS)
-		) ||
-		(
-			state == BDD_IO_STATE_SSL_CONNECTING &&
-			(substate == BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_READ || substate == BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_WRITE)
-		)
-	);
-	io->state = state;
-	io->substate = substate;
 	return;
 }
 int bdd_io_fd(struct bdd_io *io) {
 	assert(
 		io->state == BDD_IO_STATE_CREATED ||
+		io->state == BDD_IO_STATE_CONNECT ||
 		io->state == BDD_IO_STATE_CONNECTING ||
 		io->state == BDD_IO_STATE_SSL_CONNECTING ||
 		io->state == BDD_IO_STATE_ESTABLISHED ||
@@ -85,14 +76,10 @@ int bdd_io_fd(struct bdd_io *io) {
 }
 bool bdd_io_has_epoll_state(struct bdd_io *io) {
 	return (
-		(bdd_io_state(io) == BDD_IO_STATE_CONNECTING && bdd_io_substate(io) == BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS) ||
+		bdd_io_state(io) == BDD_IO_STATE_CONNECTING ||
 		bdd_io_state(io) == BDD_IO_STATE_SSL_CONNECTING ||
 		bdd_io_state(io) == BDD_IO_STATE_ESTABLISHED
 	);
-}
-uint8_t bdd_io_wait_state(struct bdd_io *io) {
-	assert(bdd_io_has_epoll_state(io));
-	return io->wait;
 }
 
 int bdd_poll(struct bdd_conversation *conversation, struct bdd_poll_io *io_ids, bdd_io_id n_io_ids, int timeout) {
@@ -121,6 +108,11 @@ int bdd_poll(struct bdd_conversation *conversation, struct bdd_poll_io *io_ids, 
 		++idx
 	) {
 		bdd_io_id io_id = io_ids[idx].io_id;
+		if (io_id == BDD_IO_ID_NVAL) {
+			pollfds[idx].fd = -1;
+			pollfds[idx].events = 0;
+			continue;
+		}
 		if (io_id < 0 || io_id >= bdd_conversation_n_max_io(conversation)) {
 			fputs("programming error: bdd_poll called with an out-of-bounds io_id\n", stderr);
 			assert(false);
@@ -198,25 +190,23 @@ __attribute__((warn_unused_result)) ssize_t bdd_read(
 	ssize_t r = 0;
 	do {
 		if (io->ssl) {
-			// SSL_read on a shut_rd socket returns 0 (wth no error) (assuming there is no pending data to be read)
 			r = SSL_read(io->io.ssl, buf, sz);
 			if (r <= 0) {
 				int err = SSL_get_error(io->io.ssl, r);
-				if (err == SSL_ERROR_WANT_READ) {
+				if (err == SSL_ERROR_WANT_WRITE) {
 					return -2;
 				}
-				if (err == SSL_ERROR_ZERO_RETURN || err == SSL_ERROR_NONE) {
+				if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_NONE) {
 					return 0;
 				}
 				bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
 				return -1;
 			}
 		} else {
-			// recv on a shut_rd socket returns 0 (assuming there is no pending data to be read)
 			r = recv(io->io.fd, buf, sz, 0);
 			if (r < 0) {
-				if (errno == EAGAIN) {
-					return -2;
+				if (errno == EAGAIN || errno == EWOULDBLOCK) {
+					return 0;
 				}
 				bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
 				return -1;
@@ -247,26 +237,23 @@ __attribute__((warn_unused_result)) ssize_t bdd_write(
 	ssize_t r = 0;
 	do {
 		if (io->ssl) {
-			// SSL_write on a shut_wr socket returns -1
 			r = SSL_write(io->io.ssl, buf, sz);
 			if (r <= 0) {
 				int err = SSL_get_error(io->io.ssl, r);
-				// SSL_write on a shut_wr socket's err is -1
-				if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+				if (err == SSL_ERROR_WANT_READ) {
 					return -2;
 				}
-				if (err == SSL_ERROR_ZERO_RETURN || err == SSL_ERROR_NONE) {
+				if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_NONE) {
 					return 0;
 				}
 				bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
 				return -1;
 			}
 		} else {
-			// send on a shut_wr socket returns -1
 			r = send(io->io.fd, buf, sz, 0);
 			if (r < 0) {
-				if (errno == EAGAIN) {
-					return -2;
+				if (errno == EAGAIN || errno == EWOULDBLOCK) {
+					return 0;
 				}
 				bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
 				return -1;
@@ -326,12 +313,15 @@ bool bdd_io_create(
 	if (fd < 0) {
 		return false;
 	}
+	io->epoll_events = EPOLLIN | EPOLLRDHUP;
 	bdd_io_set_state(io, BDD_IO_STATE_CREATED);
 	io->tcp = (type & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)) == SOCK_STREAM ? 1 : 0;
 	io->shut_wr = 0;
 	io->ssl = 0;
 	io->ssl_shut = 0;
-	io->wait = BDD_IO_WAIT_DONT;
+	io->in_epoll = 0;
+	io->no_epoll = 0;
+	io->hup = 0;
 	io->io.fd = fd;
 	(*io_id) = idx;
 	return true;
@@ -401,41 +391,19 @@ enum bdd_io_connect_status bdd_io_connect(struct bdd_conversation *conversation,
 	}
 	struct bdd_io *io = &(conversation->io[io_id]);
 
-	if (bdd_io_state(io) == BDD_IO_STATE_CREATED) {
-		bdd_io_set_state_substate(io, BDD_IO_STATE_CONNECTING, BDD_IO_CONNECTING_SUBSTATE_AGAIN);
-	}
-	if (bdd_io_state(io) == BDD_IO_STATE_CONNECTING) {
-		int fd = bdd_io_fd(io);
-		if (bdd_io_substate(io) == BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS) {
-			struct pollfd pollfd = {
-				.fd = fd,
-				.events = POLLOUT,
-				.revents = 0,
-			};
-			poll(&(pollfd), 1, 0);
-			if (pollfd.revents & (POLLERR | POLLHUP)) {
-				bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
-				goto err;
-			}
-			if (!(pollfd.revents & POLLOUT)) {
-				return bdd_io_connect_connecting;
-			}
-			// connected
-		} else {
-			assert(
-				bdd_io_state(io) == BDD_IO_STATE_CONNECTING &&
-				bdd_io_substate(io) == BDD_IO_CONNECTING_SUBSTATE_AGAIN
-			);
+	switch (bdd_io_state(io)) {
+		case (BDD_IO_STATE_CONNECT): case (BDD_IO_STATE_CREATED): {
 			if (addr == NULL || addrlen == 0) {
 				err = "programming error: bdd_io_connect called with invalid arguments\n";
 				goto err;
 			}
-			while (connect(fd, addr, addrlen) != 0) {
+			while (connect(bdd_io_fd(io), addr, addrlen) != 0) {
 				if (errno == EAGAIN) {
+					bdd_io_set_state(io, BDD_IO_STATE_CONNECT);
 					return bdd_io_connect_again;
 				} else if (errno == EINPROGRESS) {
-					bdd_io_set_state_substate(io, BDD_IO_STATE_CONNECTING, BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS);
-					return bdd_io_connect_connecting;
+					bdd_io_set_state(io, BDD_IO_STATE_CONNECTING);
+					return bdd_io_connect_wants_write;
 				} else if (errno != EINTR) {
 					// failed to connect
 					bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
@@ -443,34 +411,55 @@ enum bdd_io_connect_status bdd_io_connect(struct bdd_conversation *conversation,
 				}
 			}
 			// connected
+			break;
+		}
+		case (BDD_IO_STATE_CONNECTING): {
+			struct pollfd pollfd = {
+				.fd = bdd_io_fd(io),
+				.events = POLLOUT,
+				.revents = 0,
+			};
+			poll(&(pollfd), 1, 0);
+			if (!(pollfd.revents & POLLOUT)) {
+				if (pollfd.revents & POLLERR) {
+					bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
+					goto err;
+				}
+				return bdd_io_connect_wants_write;
+			}
+
+			if (!io->ssl) {
+				bdd_io_set_state(io, BDD_IO_STATE_ESTABLISHED);
+				return bdd_io_connect_established;
+			}
+
+			bdd_io_set_state(io, BDD_IO_STATE_SSL_CONNECTING);
 		}
 
-		if (!io->ssl) {
+		case (BDD_IO_STATE_SSL_CONNECTING): {
+			int r = SSL_connect(io->io.ssl);
+			if (r == -1) {
+				int err = SSL_get_error(io->io.ssl, r);
+				if (err == SSL_ERROR_WANT_WRITE) {
+					return bdd_io_connect_wants_write;
+				}
+				if (err == SSL_ERROR_WANT_READ) {
+					return bdd_io_connect_wants_read;
+				}
+				r = 0;
+			}
+			if (r == 0) {
+				bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
+				goto err;
+			}
+
 			bdd_io_set_state(io, BDD_IO_STATE_ESTABLISHED);
 			return bdd_io_connect_established;
 		}
-		bdd_io_set_state_substate(io, BDD_IO_STATE_SSL_CONNECTING, BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_WRITE);
-	}
-	if (bdd_io_state(io) == BDD_IO_STATE_SSL_CONNECTING) {
-		int r = SSL_connect(io->io.ssl);
-		if (r == -1) {
-			int err = SSL_get_error(io->io.ssl, r);
-			if (err == SSL_ERROR_WANT_WRITE) {
-				bdd_io_set_state_substate(io, BDD_IO_STATE_SSL_CONNECTING, BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_WRITE);
-				return bdd_io_connect_connecting;
-			} else if (err == SSL_ERROR_WANT_READ) {
-				bdd_io_set_state_substate(io, BDD_IO_STATE_SSL_CONNECTING, BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_READ);
-				return bdd_io_connect_connecting;
-			}
-			r = 0;
-		}
-		if (r == 0) {
-			bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
-			goto err;
-		}
 
-		bdd_io_set_state(io, BDD_IO_STATE_ESTABLISHED);
-		return bdd_io_connect_established;
+		default: {
+			err = "programming error: bdd_io_connect called with an io_id which is in an invalid state\n";
+		}
 	}
 
 	err:;
@@ -493,29 +482,33 @@ enum bdd_io_shutdown_state bdd_io_shutdown(struct bdd_conversation *conversation
 		goto err;
 	}
 	if (
-		(io->tcp && (io->ssl && io->ssl_shut)) ||
+		(io->tcp && (io->ssl && io->ssl_shut == 2)) ||
 		(io->shut_wr)
 	) {
 		err = "programming error: bdd_io_shutdown called with an io_id which has already been shut-down\n";
 		goto err;
 	}
 	int fd = bdd_io_fd(io);
-	if (io->ssl) {
+	if (io->ssl && bdd_io_state(io) == BDD_IO_STATE_ESTABLISHED) {
 		int r = SSL_shutdown(io->io.ssl);
 		if (!io->shut_wr) {
 			shutdown(fd, SHUT_WR);
 			io->shut_wr = 1;
 		}
 		if (r == 0) {
+			io->ssl_shut = 1;
 			return bdd_io_shutdown_again;
 		} else if (r < 0) {
 			r = SSL_get_error(io->io.ssl, r);
-			if (r == SSL_ERROR_WANT_WRITE || r == SSL_ERROR_WANT_READ) {
-				return bdd_io_shutdown_again;
+			if (r == SSL_ERROR_WANT_WRITE) {
+				return bdd_io_shutdown_wants_write;
+			}
+			if (r == SSL_ERROR_WANT_READ) {
+				return bdd_io_shutdown_wants_read;
 			}
 			goto err;
 		} else {
-			io->ssl_shut = 1;
+			io->ssl_shut = 2;
 		}
 	} else {
 		shutdown(fd, SHUT_WR);
@@ -545,6 +538,11 @@ void bdd_io_remove(struct bdd_conversation *conversation, bdd_io_id io_id) {
 
 	int fd = bdd_io_fd(io);
 	if (io->ssl) {
+		if (bdd_io_state(io) == BDD_IO_STATE_ESTABLISHED && io->ssl_shut == 1 && io->hup) {
+			// to-do: is this safe is the socket is blocking?
+			// there may be a bug in openssl
+			SSL_shutdown(io->io.ssl);
+		}
 		SSL_free(io->io.ssl);
 	}
 	shutdown(fd, SHUT_RDWR);
@@ -552,31 +550,49 @@ void bdd_io_remove(struct bdd_conversation *conversation, bdd_io_id io_id) {
 	bdd_io_set_state(io, BDD_IO_STATE_UNUSED);
 	return;
 }
-
-bool bdd_io_wait(struct bdd_conversation *conversation, bdd_io_id io_id, uint8_t wait_state) {
-	if (
-		conversation == NULL || io_id < 0 || io_id >= bdd_conversation_n_max_io(conversation) ||
-		(wait_state != BDD_IO_WAIT_DONT && wait_state != BDD_IO_WAIT_ESTABLISHED && wait_state != BDD_IO_WAIT_RDHUP)
-	) {
-		fputs("programming error: bdd_io_wait called with invalid arguments\n", stderr);
+bool bdd_io_set_blocking(struct bdd_conversation *conversation, bdd_io_id io_id, bool block) {
+	if (conversation == NULL || io_id < 0 || io_id >= bdd_conversation_n_max_io(conversation)) {
+		fputs("programming error: bdd_io_set_blocking called with invalid arguments\n", stderr);
 		assert(false);
 		return false;
 	}
 	struct bdd_io *io = &(conversation->io[io_id]);
-	if (!bdd_io_has_epoll_state(io)) {
-		fputs("programming error: bdd_io_wait called with an io_id which is in an invalid state or substate\n", stderr);
+	if (bdd_io_state(io) == BDD_IO_STATE_UNUSED || bdd_io_state(io) == BDD_IO_STATE_BROKEN) {
+		fputs("programming error: bdd_io_set_blocking called with an io_id which is in a state equal to BDD_IO_STATE_UNUSED or a state equal to BDD_IO_STATE_BROKEN\n", stderr);
 		assert(false);
 		return false;
 	}
-	if (bdd_io_state(io) == BDD_IO_STATE_ESTABLISHED && wait_state == BDD_IO_WAIT_ESTABLISHED) {
-		wait_state = BDD_IO_WAIT_DONT;
+	int fd = bdd_io_fd(io);
+	int flags = fcntl(fd, F_GETFL, 0);
+	if (flags == -1) {
+		return false;
 	}
-	if (io->wait == BDD_IO_WAIT_DONT && wait_state != BDD_IO_WAIT_DONT) {
-		conversation->n_waiting += 1;
-	} else if (io->wait != BDD_IO_WAIT_DONT && wait_state == BDD_IO_WAIT_DONT) {
-		conversation->n_waiting -= 1;
+	if (block) {
+		flags |= O_NONBLOCK;
+	} else {
+		flags &= ~(O_NONBLOCK);
 	}
-	io->wait = wait_state;
+	if (fcntl(fd, F_SETFL, flags) == -1) {
+		return false;
+	}
+	return true;
+}
+bool bdd_io_set_epoll_events(struct bdd_conversation *conversation, bdd_io_id io_id, short int epoll_events) {
+	if (conversation == NULL || io_id < 0 || io_id >= bdd_conversation_n_max_io(conversation)) {
+		fputs("programming error: bdd_io_set_epoll_events called with invalid arguments\n", stderr);
+		assert(false);
+		return false;
+	}
+	struct bdd_io *io = &(conversation->io[io_id]);
+	if (bdd_io_state(io) == BDD_IO_STATE_UNUSED || bdd_io_state(io) == BDD_IO_STATE_BROKEN) {
+		fputs("programming error: bdd_io_set_epoll_events called with an io_id which is in a state equal to BDD_IO_STATE_UNUSED or a state equal to BDD_IO_STATE_BROKEN\n", stderr);
+		assert(false);
+		return false;
+	}
+	if ((epoll_events & EPOLLIN) && !(epoll_events & EPOLLRDHUP)) {
+		fputs("programming warning: bdd_io_set_epoll_events called with epoll_events where EPOLLIN is set and EPOLLRDHUP is not set, which is rarely desired", stderr);
+	}
+	io->epoll_events = epoll_events;
 	return true;
 }
 
@@ -591,22 +607,28 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	assert(service->n_max_io > 0);
 	SSL *client_ssl = (*client_ssl_ref);
 
-	conversation->n_waiting = 0;
-	conversation->release = 0;
 	conversation->noatime = 0;
 
 	conversation->service = service;
 
-	if ((conversation->io = malloc(sizeof(struct bdd_io) * service->n_max_io)) == NULL) {
+	conversation->io = malloc(
+		(sizeof(struct bdd_io) * service->n_max_io) +
+		(sizeof(short int) * service->n_max_io)
+	);
+
+	if (conversation->io == NULL) {
 		return bdd_conversation_init_failed;
 	}
 
+	conversation->io[0].epoll_events = EPOLLIN | EPOLLRDHUP;
 	conversation->io[0].state = BDD_IO_STATE_ESTABLISHED;
 	conversation->io[0].tcp = 1;
 	conversation->io[0].shut_wr = 0;
 	conversation->io[0].ssl = 1;
 	conversation->io[0].ssl_shut = 0;
-	conversation->io[0].wait = BDD_IO_WAIT_DONT;
+	conversation->io[0].in_epoll = 0;
+	conversation->io[0].no_epoll = 0;
+	conversation->io[0].hup = 0;
 
 	(*client_ssl_ref) = NULL;
 	conversation->io[0].io.ssl = client_ssl;

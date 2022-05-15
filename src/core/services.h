@@ -9,9 +9,10 @@
 #include "src/headers/bdd_service.h"
 #include "src/headers/bdd_io_remove.h"
 #include "src/headers/bdd_io_connect.h"
+#include "src/headers/bdd_conversation_n_max_io.h"
 #include "src/headers/bdd_poll.h"
 #include "src/headers/bdd_io_shutdown.h"
-#include "src/headers/bdd_io_wait.h"
+#include <sys/epoll.h>
 
 struct bdd_conversation;
 
@@ -49,5 +50,7 @@ bool bdd_name_descriptions_add_service_instance(
 	const struct bdd_service *service,
 	void **instance_info
 );
+bool bdd_io_set_epoll_events(struct bdd_conversation *conversation, bdd_io_id io_id, short int epoll_events);
+bool bdd_io_set_blocking(struct bdd_conversation *conversation, bdd_io_id io_id, bool block);
 
 #endif

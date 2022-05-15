@@ -8,11 +8,8 @@ gcc_args = ["gcc", "-o", "bidirectiond"]
 services_c = "#include <bddc/settings.h>\n"
 services = "const struct bdd_service services[] = {"
 names = [
-	["bool %s(struct bdd_conversation *conversation, void *buf, size_t buf_size);", "serve"],
 	["bool %s(struct bdd_conversation *conversation, const char *protocol_name, void *instance_info, bdd_io_id client_id, struct sockaddr client_sockaddr);", "conversation_init"],
 	["void %s(void *instance_info);", "instance_info_destructor"],
-	["void %s(struct bdd_conversation *conversation, bdd_io_id io_id);", "io_established"],
-	["void %s(struct bdd_conversation *conversation, bdd_io_id io_id);", "io_removed"],
 ]
 np = 0
 for dir, _, files in os.walk("src"):
@@ -35,16 +32,18 @@ for dir, _, files in os.walk("src"):
                     services += "NULL"
                 services += ","
             services_c += f"""bool {p["instantiate"]}(struct locked_hashmap *name_descriptions, const struct bdd_service *service, size_t n_arguments, const char **arguments);\n"""
+            services_c += f"""void {p["handle_events"]}(struct bdd_conversation *conversation, const short int (*revents)[{p["n_max_io"]}]);\n"""
             supported_protocols = "NULL"
             if "supported_protocols" in p:
                 supported_protocols = "(const char *[]){ %s, NULL, }" % json.dumps(p["supported_protocols"])[1:-1]
             services += """
 				.instantiate = &(%s),
+				.handle_events = (void *)&(%s),
 				.supported_arguments = (const char *[]){ %s, NULL, },
 				.arguments_help = (char *)%s,
 				.n_max_io = %i,
 				.supported_protocols = %s,
-			},""" % (p["instantiate"], json.dumps(p["supported_arguments"])[1:-1], json.dumps(p["arguments_help"]), p["n_max_io"], supported_protocols)
+			},""" % (p["instantiate"], p["handle_events"], json.dumps(p["supported_arguments"])[1:-1], json.dumps(p["arguments_help"]), p["n_max_io"], supported_protocols)
             fd.close()
 services += "};"
 services_c += services

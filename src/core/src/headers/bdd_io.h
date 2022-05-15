@@ -6,30 +6,27 @@
 
 #define BDD_IO_STATE_UNUSED 0
 #define BDD_IO_STATE_CREATED 1
-#define BDD_IO_STATE_CONNECTING 2
-#define BDD_IO_STATE_SSL_CONNECTING 3
-#define BDD_IO_STATE_ESTABLISHED 4
-#define BDD_IO_STATE_BROKEN 5
-
-#define BDD_IO_CONNECTING_SUBSTATE_AGAIN 0
-#define BDD_IO_CONNECTING_SUBSTATE_IN_PROGRESS 1
-
-#define BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_READ 0
-#define BDD_IO_SSL_CONNECTING_SUBSTATE_WANTS_WRITE 1
+#define BDD_IO_STATE_CONNECT 3
+#define BDD_IO_STATE_CONNECTING 4
+#define BDD_IO_STATE_SSL_CONNECTING 5
+#define BDD_IO_STATE_ESTABLISHED 6
+#define BDD_IO_STATE_BROKEN 7
 
 struct bdd_io {
+	short int epoll_events;
+
 	uint16_t
 		state : 3,
-		substate : 1,
 
 		tcp : 1,
 		shut_wr : 1,
 		ssl : 1,
-		ssl_shut : 1,
+		ssl_shut : 2,
 
-		wait : 2,
+		in_epoll : 1,
+		no_epoll : 1,
+		hup : 1;
 
-		in_epoll : 1;
 	union {
 		int fd;
 		SSL *ssl;

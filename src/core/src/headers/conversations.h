@@ -8,12 +8,12 @@
 #include <sys/socket.h>
 
 #include "bdd_io_id.h"
+#include "bdd_conversation_n_max_io.h"
 
 struct bdd_instance;
 struct bdd_service;
 struct bdd_io;
 
-bdd_io_id bdd_conversation_n_max_io(struct bdd_conversation *conversation);
 int bdd_conversation_id(struct bdd_instance *instance, struct bdd_conversation *conversation);
 
 struct bdd_associated {
@@ -50,13 +50,11 @@ struct bdd_associated {
 struct bdd_conversation {
 	const uint8_t struct_type; // constant - set by bdd_go
 	uint8_t
-		skip : 3, // moved out of the valid_conversations linked list - set by bdd_serve
-		release : 3, // to_epoll processor should release the conversation - set by bdd_conversation_init and bdd_worker
+		skip : 2, // moved out of the valid_conversations linked list - set by bdd_serve
 		noatime : 2; // do not update accessed_at - set by bdd_conversation_init and bdd_serve
 
-	// number of bdd_io structs which are in a waiting state
-	// set by services and bdd_serve
-	bdd_io_id n_waiting;
+	// created by bdd_go, destroyed by bdd_destroy
+	pthread_mutex_t skip_mutex;
 
 	// valid_conversations
 	// set by the to_epoll processor when the conversation is moved into valid_conversations
@@ -73,9 +71,6 @@ struct bdd_conversation {
 	struct bdd_io *io;
 	// technically set by a service, destroyed by a service or bdd_conversation_deinit
 	struct bdd_associated associated;
-
-	// created by bdd_go, destroyed by bdd_destroy
-	pthread_mutex_t skip_mutex;
 };
 
 enum bdd_conversation_init_status {

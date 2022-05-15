@@ -31,7 +31,6 @@ struct bdd_settings settings = {
 	.name_descriptions = NULL,
 	.n_conversations = 0x100,
 	.n_epoll_oevents = 0x200,
-	.buf_sz = 0x800,
 	.n_worker_threads = 16,
 	.client_timeout = 8000,
 	.epoll_timeout = -1,
@@ -157,10 +156,6 @@ int main(int argc, char *argv[], char *env[]) {
 				fputs("setrlimit failed\n", stderr);
 			}
 			arg += 3;
-		} else if (strcmp((*arg), "--buffer-size") == 0 || strcmp((*arg), "-b") == 0) {
-			EXPECT_ARGS(1);
-			stoui(&(settings.buf_sz), arg[1]);
-			arg += 2;
 		} else if (strcmp((*arg), "--backlog") == 0) {
 			EXPECT_ARGS(1);
 			stoi(&(backlog), arg[1]);
@@ -310,7 +305,6 @@ int main(int argc, char *argv[], char *env[]) {
 			     "bdd_conversation structs\n"
 			     "-l: set the rlimits for open files (soft limit, "
 			     "hard limit)\n"
-			     "-b: set the size of the large worker buffers\n"
 			     "--backlog: set the tcp backlog for sv_socket\n"
 			     "-p: set the tcp port to bind sv_socket to\n"
 			     "--max-conversations: the max amount of "
@@ -326,7 +320,7 @@ int main(int argc, char *argv[], char *env[]) {
 			     "that some bidirectiond settings can be modified "
 			     "without restarting\n"
 			     "--n-epoll-oevents: epoll_wait maxevents\n"
-			     "--big-alloc: reserve some ram");
+			     "--big-alloc: reserve some memory\n");
 			for (size_t idx = 0; idx < N_SERVICES; ++idx) {
 				if (services[idx].arguments_help != NULL) {
 					fputs(services[idx].arguments_help, stdout);

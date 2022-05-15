@@ -94,9 +94,6 @@ void bdd_destroy(struct bdd_instance *instance) {
 		pthread_cond_destroy(&(instance->workers[idx].work_cond));
 	}
 
-	free(instance->workers_buf);
-	free(instance->workers);
-
 	free(instance);
 
 	while (atomic_flag_test_and_set(&(BDD_GLOBAL_MUTEX)));
@@ -167,15 +164,12 @@ struct bdd_instance *bdd_instance_alloc(void) {
 	instance->n_workers = 0;
 	instance->workers = NULL;
 	instance->workers_idx = 0;
-	instance->workers_buf = NULL;
-	instance->buf_sz_per_worker = 0;
 	return instance;
 }
 
 struct bdd_instance *bdd_go(struct bdd_settings settings) {
 	if (
 		settings.sv_socket < 0 ||
-		settings.buf_sz <= 0 ||
 		settings.n_conversations <= 0 ||
 		settings.n_epoll_oevents <= 0 ||
 		settings.name_descriptions == NULL ||
@@ -301,11 +295,6 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		instance->available_workers.ids = ids;
 		instance->available_workers.idx = settings.n_worker_threads;
 	}
-	instance->workers_buf = malloc(settings.buf_sz * settings.n_worker_threads);
-	if (instance->workers_buf == NULL) {
-		goto err;
-	}
-	instance->buf_sz_per_worker = settings.buf_sz;
 
 	pthread_mutex_lock(&(instance->n_running_threads_mutex));
 	pthread_t pthid;

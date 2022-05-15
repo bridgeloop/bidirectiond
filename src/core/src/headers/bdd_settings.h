@@ -12,7 +12,6 @@ struct bdd_settings {
 	uint32_t client_timeout;
 	int epoll_timeout;
 
-	uint32_t buf_sz;
 	bool use_work_queues;
 
 	int n_conversations;

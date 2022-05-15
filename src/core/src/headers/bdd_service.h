@@ -9,10 +9,7 @@
 #include "bdd_io_id.h"
 struct bdd_conversation;
 struct bdd_service {
-	bool (*serve)(struct bdd_conversation *conversation, void *buf, size_t buf_size);
-
-	void (*io_removed)(struct bdd_conversation *conversation, bdd_io_id io_id);
-	void (*io_established)(struct bdd_conversation *conversation, bdd_io_id io_id);
+	bool (*handle_events)(struct bdd_conversation *conversation, short int *revents);
 
 	bool (*conversation_init)(
 		struct bdd_conversation *conversation,
