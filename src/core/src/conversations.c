@@ -478,7 +478,7 @@ enum bdd_io_shutdown_state bdd_io_shutdown(struct bdd_conversation *conversation
 	}
 	struct bdd_io *io = &(conversation->io[io_id]);
 	if (bdd_io_state(io) != BDD_IO_STATE_SSL_CONNECTING && bdd_io_state(io) != BDD_IO_STATE_ESTABLISHED) {
-		err = "programming error: bdd_io_shutdown called with an io_id which is in a state which is not BDD_IO_STATE_SSL_CONNECTING and is not BDD_IO_STATE_ESTABLISHED\n";
+		err = "programming error: bdd_io_shutdown called with an io_id which is in an invalid state\n";
 		goto err;
 	}
 	if (
@@ -557,8 +557,14 @@ bool bdd_io_set_blocking(struct bdd_conversation *conversation, bdd_io_id io_id,
 		return false;
 	}
 	struct bdd_io *io = &(conversation->io[io_id]);
-	if (bdd_io_state(io) == BDD_IO_STATE_UNUSED || bdd_io_state(io) == BDD_IO_STATE_BROKEN) {
-		fputs("programming error: bdd_io_set_blocking called with an io_id which is in a state equal to BDD_IO_STATE_UNUSED or a state equal to BDD_IO_STATE_BROKEN\n", stderr);
+	if (
+		bdd_io_state(io) != BDD_IO_STATE_CREATED &&
+		bdd_io_state(io) != BDD_IO_STATE_CONNECT &&
+		bdd_io_state(io) != BDD_IO_STATE_CONNECTING &&
+		bdd_io_state(io) != BDD_IO_STATE_SSL_CONNECTING &&
+		bdd_io_state(io) != BDD_IO_STATE_ESTABLISHED
+	) {
+		fputs("programming error: bdd_io_set_blocking called with an io_id which is in an invalid state\n", stderr);
 		assert(false);
 		return false;
 	}
@@ -568,9 +574,9 @@ bool bdd_io_set_blocking(struct bdd_conversation *conversation, bdd_io_id io_id,
 		return false;
 	}
 	if (block) {
-		flags |= O_NONBLOCK;
-	} else {
 		flags &= ~(O_NONBLOCK);
+	} else {
+		flags |= O_NONBLOCK;
 	}
 	if (fcntl(fd, F_SETFL, flags) == -1) {
 		return false;
@@ -584,8 +590,14 @@ bool bdd_io_set_epoll_events(struct bdd_conversation *conversation, bdd_io_id io
 		return false;
 	}
 	struct bdd_io *io = &(conversation->io[io_id]);
-	if (bdd_io_state(io) == BDD_IO_STATE_UNUSED || bdd_io_state(io) == BDD_IO_STATE_BROKEN) {
-		fputs("programming error: bdd_io_set_epoll_events called with an io_id which is in a state equal to BDD_IO_STATE_UNUSED or a state equal to BDD_IO_STATE_BROKEN\n", stderr);
+	if (
+		bdd_io_state(io) != BDD_IO_STATE_CREATED &&
+		bdd_io_state(io) != BDD_IO_STATE_CONNECT &&
+		bdd_io_state(io) != BDD_IO_STATE_CONNECTING &&
+		bdd_io_state(io) != BDD_IO_STATE_SSL_CONNECTING &&
+		bdd_io_state(io) != BDD_IO_STATE_ESTABLISHED
+	) {
+		fputs("programming error: bdd_io_set_epoll_events called with an io_id which is in an invalid state\n", stderr);
 		assert(false);
 		return false;
 	}
@@ -594,6 +606,51 @@ bool bdd_io_set_epoll_events(struct bdd_conversation *conversation, bdd_io_id io
 	}
 	io->epoll_events = epoll_events;
 	return true;
+}
+bool bdd_io_blocking(struct bdd_conversation *conversation, bdd_io_id io_id) {
+	if (conversation == NULL || io_id < 0 || io_id >= bdd_conversation_n_max_io(conversation)) {
+		fputs("programming error: bdd_io_blocking called with invalid arguments\n", stderr);
+		assert(false);
+		return false;
+	}
+	struct bdd_io *io = &(conversation->io[io_id]);
+	if (
+		bdd_io_state(io) != BDD_IO_STATE_CREATED &&
+		bdd_io_state(io) != BDD_IO_STATE_CONNECT &&
+		bdd_io_state(io) != BDD_IO_STATE_CONNECTING &&
+		bdd_io_state(io) != BDD_IO_STATE_SSL_CONNECTING &&
+		bdd_io_state(io) != BDD_IO_STATE_ESTABLISHED
+	) {
+		fputs("programming error: bdd_io_blocking called with an io_id which is in an invalid state\n", stderr);
+		assert(false);
+		return false;
+	}
+	int fd = bdd_io_fd(io);
+	int flags = fcntl(fd, F_GETFL, 0);
+	if (flags == -1) {
+		return false;
+	}
+	return (flags & O_NONBLOCK) ? false : true;
+}
+short int bdd_io_epoll_events(struct bdd_conversation *conversation, bdd_io_id io_id) {
+	if (conversation == NULL || io_id < 0 || io_id >= bdd_conversation_n_max_io(conversation)) {
+		fputs("programming error: bdd_io_epoll_events called with invalid arguments\n", stderr);
+		assert(false);
+		return -1;
+	}
+	struct bdd_io *io = &(conversation->io[io_id]);
+	if (
+		bdd_io_state(io) != BDD_IO_STATE_CREATED &&
+		bdd_io_state(io) != BDD_IO_STATE_CONNECT &&
+		bdd_io_state(io) != BDD_IO_STATE_CONNECTING &&
+		bdd_io_state(io) != BDD_IO_STATE_SSL_CONNECTING &&
+		bdd_io_state(io) != BDD_IO_STATE_ESTABLISHED
+	) {
+		fputs("programming error: bdd_io_epoll_events called with an io_id which is in an invalid state\n", stderr);
+		assert(false);
+		return -1;
+	}
+	return io->epoll_events;
 }
 
 enum bdd_conversation_init_status bdd_conversation_init(
