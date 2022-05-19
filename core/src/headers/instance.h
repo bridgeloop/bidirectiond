@@ -29,7 +29,7 @@ struct bdd_instance {
 	struct epoll_event *epoll_oevents;
 	int epoll_timeout;
 
-	void *name_descriptions;
+	void *name_descs;
 
 	struct timeval client_timeout;
 
@@ -55,7 +55,7 @@ struct bdd_instance {
 		int eventfd;
 		struct pollfd pollfds[2];
 		SSL_CTX *ssl_ctx;
-		struct bdd_accept_ctx accept_ctx;
+		struct bdd_accept_ctx ctx;
 	} accept;
 
 	struct {

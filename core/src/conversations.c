@@ -659,7 +659,7 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	struct sockaddr client_sockaddr,
 	const struct bdd_service *service,
 	const char *protocol_name,
-	void *instance_info
+	const void *instance_info
 ) {
 	assert(service->n_max_io > 0);
 	SSL *client_ssl = (*client_ssl_ref);

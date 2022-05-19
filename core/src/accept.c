@@ -13,7 +13,7 @@
 #include "headers/unlikely.h"
 #include "headers/debug_log.h"
 #include "headers/conversations.h"
-#include "headers/name_descriptions.h"
+#include "headers/name_descs.h"
 #include "headers/bdd_service.h"
 #include "headers/signal.h"
 
@@ -23,8 +23,9 @@ int bdd_alpn_cb(
 	unsigned char *outlen,
 	const unsigned char *_,
 	unsigned int __,
-	struct bdd_accept_ctx *ctx
+	struct bdd_instance *instance
 ) {
+	struct bdd_accept_ctx *ctx = &(instance->accept.ctx);
 	if (ctx->protocol_name == NULL) {
 		return SSL_TLSEXT_ERR_NOACK;
 	}
@@ -33,7 +34,11 @@ int bdd_alpn_cb(
 	return SSL_TLSEXT_ERR_OK;
 }
 
-int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
+int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_instance *instance) {
+	struct bdd_accept_ctx *ctx = &(instance->accept.ctx);
+	struct hashmap *name_descs = instance->name_descs;
+	struct hashmap_key key = HASHMAP_KEY_INITIALIZER;
+	int r = SSL_CLIENT_HELLO_ERROR;
 	const unsigned char *extension;
 	size_t extension_sz;
 	if (SSL_client_hello_get0_ext(client_ssl, TLSEXT_TYPE_server_name, &(extension), &(extension_sz)) == 0) {
@@ -75,19 +80,21 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 
 	uint8_t found_req = 0;
 	for (size_t idx = 0;;) {
-		struct bdd_name_description *name_description = locked_hashmap_get_wl(
-			ctx->locked_name_descriptions,
-			(char *)&(name[idx]),
+		hashmap_key_obtain(
+			name_descs,
+			&(key),
+			&(name[idx]),
 			name_sz
 		);
-		if (name_description != NULL) {
-			if (!(found_req & 0b01) && name_description->x509 != NULL) {
+		struct bdd_name_desc *name_desc;
+		if (hashmap_get(name_descs, &(key), (void *)&(name_desc))) {
+			if (!(found_req & 0b01) && name_desc->x509 != NULL) {
 				found_req |= 0b01;
-				SSL_use_certificate(client_ssl, name_description->x509);
-				SSL_use_PrivateKey(client_ssl, name_description->pkey);
+				SSL_use_certificate(client_ssl, name_desc->x509);
+				SSL_use_PrivateKey(client_ssl, name_desc->pkey);
 			}
 			struct bdd_service_instance *inst;
-			if (!(found_req & 0b10) && (inst = name_description->service_instances) != NULL) {
+			if (!(found_req & 0b10) && (inst = name_desc->service_instances) != NULL) {
 				const char *cstr_protocol_name = NULL;
 				unsigned short int offset = alpn_sz;
 				struct bdd_service_instance *found = NULL;
@@ -143,18 +150,21 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 		}
 		if (name_sz == 0) {
 			*alert = SSL_AD_UNRECOGNIZED_NAME;
-			return SSL_CLIENT_HELLO_ERROR;
+			goto out;
 		}
 		do {
 			idx += 1;
 			name_sz -= 1;
 		} while (name_sz != 0 && name[idx] != '.');
 	}
-	return SSL_CLIENT_HELLO_SUCCESS;
+	r = SSL_CLIENT_HELLO_SUCCESS;
+	out:;
+	hashmap_key_release(instance->name_descs, &(key), false);
+	return r;
 }
 
 void *bdd_accept(struct bdd_instance *instance) {
-	struct bdd_accept_ctx *ctx = &(instance->accept.accept_ctx);
+	struct bdd_accept_ctx *ctx = &(instance->accept.ctx);
 	poll:;
 	while (poll(instance->accept.pollfds, 2, -1) < 0) {
 		if (errno != EINTR) {
@@ -204,10 +214,6 @@ void *bdd_accept(struct bdd_instance *instance) {
 		goto err;
 	}
 
-	if ((ctx->locked_name_descriptions = hashmap_lock(instance->name_descriptions)) == NULL) {
-		BDD_DEBUG_LOG("failed to obtain name_descriptions\n");
-		goto err;
-	}
 	if (SSL_accept(client_ssl) <= 0) {
 		BDD_DEBUG_LOG("rejected tls setup\n");
 		goto err;
@@ -242,16 +248,12 @@ void *bdd_accept(struct bdd_instance *instance) {
 		}
 	}
 
-	locked_hashmap_unlock(&(ctx->locked_name_descriptions));
 	goto poll;
 
 	err:;
 
 	BDD_DEBUG_LOG("failed to accept connection\n");
 
-	if (ctx->locked_name_descriptions != NULL) {
-		locked_hashmap_unlock(&(ctx->locked_name_descriptions));
-	}
 	if (client_ssl != NULL) {
 		SSL_free(client_ssl);
 	}

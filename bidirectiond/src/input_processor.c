@@ -188,11 +188,9 @@ void input_processor(int sfd, char *br_buf, int br_buf_sz) {
 			goto tls_pem_load_err;
 		}
 
-		struct locked_hashmap *lh = hashmap_lock(settings.name_descriptions);
-		if (bdd_name_descriptions_use_cert_pkey(lh, &(x509), &(pkey))) {
+		if (bdd_name_descs_use_cert_pkey(settings.name_descs, &(x509), &(pkey))) {
 			e |= 0b10;
 		}
-		locked_hashmap_unlock(&(lh));
 
 		tls_pem_load_err:;
 		if (bio != NULL) {

@@ -6,7 +6,7 @@
 #include <poll.h>
 #include <assert.h>
 #include <arpa/inet.h>
-#include <bddc/settings.h>
+#include <bdd-core/settings.h>
 #include <fcntl.h>
 #include <openssl/engine.h>
 #include <openssl/err.h>
@@ -28,7 +28,7 @@
 #endif
 
 struct bdd_settings settings = {
-	.name_descriptions = NULL,
+	.name_descs = NULL,
 	.n_conversations = 0x100,
 	.n_epoll_oevents = 0x200,
 	.n_worker_threads = 16,
@@ -70,7 +70,6 @@ void storlim(rlim_t *dest, char *str) {
 // main
 #ifndef HASHMAP_MAIN
 int main(int argc, char *argv[], char *env[]) {
-	puts("bidirectiond version " PROG_SEMVER);
 	// set up tls
 	SSL_library_init();
 	OpenSSL_add_all_algorithms();
@@ -86,9 +85,9 @@ int main(int argc, char *argv[], char *env[]) {
 	};
 	int sig_fd = -1;
 
-	// name_descriptions
-	if ((settings.name_descriptions = bdd_name_descriptions_create()) == NULL) {
-		fputs("failed to allocate settings.name_descriptions\n", stderr);
+	// name_descs
+	if ((settings.name_descs = bdd_name_descs_create()) == NULL) {
+		fputs("failed to allocate settings.name_descs\n", stderr);
 		goto clean_up;
 	}
 	// args
@@ -128,18 +127,17 @@ int main(int argc, char *argv[], char *env[]) {
 	}
 	endpwent();
 
-	struct locked_hashmap *lh = hashmap_lock(settings.name_descriptions);
 	size_t big_alloc_sz = 0;
 
 	#define EXPECT_ARGS(n) \
 	for (size_t idx = 1; idx <= n; ++idx) { \
-		if (arg[idx] == NULL || (arg[idx][0] == '-' && (arg[idx][1] < '1' || arg[idx][1] > '9'))) {\
+		if (arg[idx] == NULL || (arg[idx][0] == '-' && (arg[idx][1] < '1' || arg[idx][1] > '9'))) { \
 			goto arg_err; \
 		} \
 	}
 	arg_iter:;
 	while ((*arg) != NULL) {
-		if (strcmp((*arg), "--n-connection-threads") == 0 || strcmp((*arg), "-t") == 0) {
+		if (strcmp((*arg), "--n-worker-threads") == 0 || strcmp((*arg), "-t") == 0) {
 			EXPECT_ARGS(1);
 			stousi(&(settings.n_worker_threads), arg[1]);
 			arg += 2;
@@ -231,7 +229,7 @@ int main(int argc, char *argv[], char *env[]) {
 				goto arg_creds_err;
 			}
 
-			if (!bdd_name_descriptions_use_cert_pkey(lh, &(x509), &(pkey))) {
+			if (!bdd_name_descs_use_cert_pkey(settings.name_descs, &(x509), &(pkey))) {
 				fputs("seemingly invalid certificate file\n", stderr);
 				goto arg_creds_err;
 			}
@@ -273,22 +271,24 @@ int main(int argc, char *argv[], char *env[]) {
 			stosz(&(big_alloc_sz), arg[1]);
 			arg += 2;
 		} else {
-			for (size_t idx = 0; idx < N_SERVICES; ++idx) {
+			for (size_t idx = 0; idx < n_services; ++idx) {
 				if (services[idx].supported_arguments != NULL)
 					for (size_t pidx = 0; services[idx].supported_arguments[pidx]; ++pidx) {
 						if (strcmp((*arg), services[idx].supported_arguments[pidx]) == 0) {
 							size_t n = 1;
-							while (arg[n] != NULL
-							       && (arg[n][0] != '-'
-								   || (arg[n][1] >= '0' && arg[n][1] <= '9'))) {
+							while (
+								arg[n] != NULL &&
+								(arg[n][0] != '-'  ||
+								(arg[n][1] >= '0' && arg[n][1] <= '9'))
+							) {
 								n += 1;
 							}
 							if (!services[idx].instantiate(
-								    lh,
-								    &(services[idx]),
-								    n,
-								    (const char **)arg
-							    )) {
+								settings.name_descs,
+								&(services[idx]),
+								n,
+								(const char **)arg
+							)) {
 								goto arg_err;
 							}
 							arg = &(arg[n]);
@@ -321,16 +321,14 @@ int main(int argc, char *argv[], char *env[]) {
 			     "without restarting\n"
 			     "--n-epoll-oevents: epoll_wait maxevents\n"
 			     "--big-alloc: reserve some memory\n", stdout);
-			for (size_t idx = 0; idx < N_SERVICES; ++idx) {
+			for (size_t idx = 0; idx < n_services; ++idx) {
 				if (services[idx].arguments_help != NULL) {
 					fputs(services[idx].arguments_help, stdout);
 				}
 			}
-			locked_hashmap_unlock(&(lh));
 			goto clean_up;
 		}
 	}
-	locked_hashmap_unlock(&(lh));
 
 	// potentially a setuid program
 	if (getuid() != 0 && geteuid() == 0) {
@@ -484,8 +482,8 @@ int main(int argc, char *argv[], char *env[]) {
 		close(settings.sv_socket);
 	}
 	// aight
-	if (settings.name_descriptions != NULL) {
-		hashmap_destroy(settings.name_descriptions);
+	if (settings.name_descs != NULL) {
+		bdd_name_descs_destroy(&(settings.name_descs));
 	}
 	// https://stackoverflow.com/questions/29845527/how-to-properly-uninitialize-openssl
 	// FIPS_mode_set(0);

@@ -70,7 +70,11 @@ void bdd_destroy(struct bdd_instance *instance) {
 	pthread_mutex_destroy(&(instance->available_conversations.mutex));
 	pthread_cond_destroy(&(instance->available_conversations.cond));
 
-	for (int idx = 0; idx < instance->conversations_idx; ++idx) {
+	for (
+		size_t idx = 0;
+		idx < instance->conversations_idx;
+		++idx
+	) {
 		bdd_conversation_deinit(&(instance->conversations[idx]));
 		pthread_mutex_destroy(&(instance->conversations[idx].skip_mutex));
 	}
@@ -89,7 +93,11 @@ void bdd_destroy(struct bdd_instance *instance) {
 	pthread_cond_destroy(&(instance->available_workers.cond));
 	free(instance->available_workers.ids);
 
-	for (unsigned short int idx = 0; idx < instance->n_workers; ++idx) {
+	for (
+		size_t idx = 0;
+		idx < instance->n_workers;
+		++idx
+	) {
 		pthread_mutex_destroy(&(instance->workers[idx].work_mutex));
 		pthread_cond_destroy(&(instance->workers[idx].work_cond));
 	}
@@ -123,8 +131,8 @@ struct bdd_instance *bdd_instance_alloc(void) {
 	instance->n_epoll_oevents = 0;
 	instance->epoll_oevents = NULL;
 	instance->epoll_timeout = -1;
-	// name_descriptions
-	instance->name_descriptions = NULL;
+	// name_descs
+	instance->name_descs = NULL;
 	// client timeout
 	instance->client_timeout.tv_sec = 0;
 	instance->client_timeout.tv_usec = 0;
@@ -149,10 +157,9 @@ struct bdd_instance *bdd_instance_alloc(void) {
 		instance->accept.pollfds[idx].revents = 0;
 	}
 	instance->accept.ssl_ctx = NULL;
-	instance->accept.accept_ctx.service_instance = NULL;
-	instance->accept.accept_ctx.protocol_name = NULL;
-	instance->accept.accept_ctx.cstr_protocol_name = NULL;
-	instance->accept.accept_ctx.locked_name_descriptions = NULL;
+	instance->accept.ctx.service_instance = NULL;
+	instance->accept.ctx.protocol_name = NULL;
+	instance->accept.ctx.cstr_protocol_name = NULL;
 	instance->to_epoll.head = NULL;
 	// serve_eventfd
 	instance->serve_eventfd = -1;
@@ -172,7 +179,7 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		settings.sv_socket < 0 ||
 		settings.n_conversations <= 0 ||
 		settings.n_epoll_oevents <= 0 ||
-		settings.name_descriptions == NULL ||
+		settings.name_descs == NULL ||
 		settings.n_worker_threads <= 0
 	) {
 		return NULL;
@@ -218,8 +225,8 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		goto err;
 	}
 	instance->epoll_timeout = settings.epoll_timeout;
-	// name_descriptions
-	instance->name_descriptions = settings.name_descriptions;
+	// name_descs
+	instance->name_descs = settings.name_descs;
 	// client timeout
 	instance->client_timeout.tv_sec = (settings.client_timeout / 1000);
 	instance->client_timeout.tv_usec = (settings.client_timeout % 1000) * 1000;
@@ -244,7 +251,11 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		goto err;
 	}
 	// init conversations, and the available stack
-	for (int *idx = &(instance->conversations_idx); (*idx) < settings.n_conversations; ++(*idx)) {
+	for (
+		int *idx = &(instance->conversations_idx);
+		(*idx) < settings.n_conversations;
+		++(*idx)
+	) {
 		(*(uint8_t *)&(instance->conversations[(*idx)].struct_type)) = 0;
 		if (pthread_mutex_init(&(instance->conversations[(*idx)].skip_mutex), NULL) != 0) {
 			goto err;
@@ -270,8 +281,8 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 	if ((instance->accept.ssl_ctx = bdd_ssl_ctx_skel()) == NULL) {
 		goto err;
 	}
-	SSL_CTX_set_alpn_select_cb(instance->accept.ssl_ctx, (void *)bdd_alpn_cb, &(instance->accept.accept_ctx));
-	SSL_CTX_set_client_hello_cb(instance->accept.ssl_ctx, (void *)bdd_hello_cb, &(instance->accept.accept_ctx));
+	SSL_CTX_set_alpn_select_cb(instance->accept.ssl_ctx, (void *)bdd_alpn_cb, instance);
+	SSL_CTX_set_client_hello_cb(instance->accept.ssl_ctx, (void *)bdd_hello_cb, instance);
 	// serve
 	if ((instance->serve_eventfd = eventfd(0, EFD_NONBLOCK)) < 0) {
 		goto err;
@@ -330,12 +341,15 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		workers[(*idx)].id = (*idx);
 		workers[(*idx)].conversations = NULL;
 		workers[(*idx)].conversations_appender = NULL;
-		if (!e && pthread_create(
-			&(pthid),
-			NULL,
-			(void *(*)(void *))(&(bdd_worker)),
-			&(workers[(*idx)])
-		) == 0) {
+		if (
+			!e &&
+			pthread_create(
+				&(pthid),
+				NULL,
+				(void *(*)(void *))(&(bdd_worker)),
+				&(workers[(*idx)])
+			) == 0
+		) {
 			instance->n_running_threads += 1;
 		} else {
 			e = true;

@@ -7,7 +7,7 @@
 struct bdd_settings {
 	int sv_socket;
 
-	struct hashmap *name_descriptions;
+	struct bdd_name_descs *name_descs;
 
 	uint32_t client_timeout;
 	int epoll_timeout;

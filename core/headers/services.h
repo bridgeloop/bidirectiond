@@ -4,15 +4,18 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <sys/socket.h>
-#include "src/headers/pollrdhup.h"
-#include "src/headers/bdd_io_id.h"
-#include "src/headers/bdd_service.h"
-#include "src/headers/bdd_io_remove.h"
-#include "src/headers/bdd_io_connect.h"
-#include "src/headers/bdd_conversation_n_max_io.h"
-#include "src/headers/bdd_poll.h"
-#include "src/headers/bdd_io_shutdown.h"
 #include <sys/epoll.h>
+#include <hashmap/hashmap.h>
+
+#include "../src/headers/pollrdhup.h"
+#include "../src/headers/bdd_io_id.h"
+#include "../src/headers/bdd_service.h"
+#include "../src/headers/bdd_io_remove.h"
+#include "../src/headers/bdd_name_descs.h"
+#include "../src/headers/bdd_io_connect.h"
+#include "../src/headers/bdd_conversation_n_max_io.h"
+#include "../src/headers/bdd_poll.h"
+#include "../src/headers/bdd_io_shutdown.h"
 
 struct bdd_conversation;
 
@@ -36,22 +39,34 @@ bool bdd_io_create(
 	int type,
 	int protocol
 );
-bool bdd_io_prep_ssl(struct bdd_conversation *conversation, bdd_io_id io_id, char *ssl_name);
+bool bdd_io_prep_ssl(
+	struct bdd_conversation *conversation,
+	bdd_io_id io_id,
+	char *ssl_name
+);
 void bdd_set_associated(
 	struct bdd_conversation *conversation,
 	void *data,
 	void (*destructor)(void *)
 );
 void *bdd_get_associated(struct bdd_conversation *conversation);
-bool bdd_name_descriptions_add_service_instance(
-	struct locked_hashmap *name_descriptions,
+bool bdd_name_descs_add_service_instance(
+	struct bdd_name_descs *name_descs,
 	const char *scope,
 	size_t scope_sz,
 	const struct bdd_service *service,
-	void **instance_info
+	const void **instance_info
 );
-bool bdd_io_set_epoll_events(struct bdd_conversation *conversation, bdd_io_id io_id, short int epoll_events);
-bool bdd_io_set_blocking(struct bdd_conversation *conversation, bdd_io_id io_id, bool block);
+bool bdd_io_set_epoll_events(
+	struct bdd_conversation *conversation,
+	bdd_io_id io_id,
+	short int epoll_events
+);
+bool bdd_io_set_blocking(
+	struct bdd_conversation *conversation,
+	bdd_io_id io_id,
+	bool block
+);
 short int bdd_io_epoll_events(struct bdd_conversation *conversation, bdd_io_id io_id);
 bool bdd_io_blocking(struct bdd_conversation *conversation, bdd_io_id io_id);
 

@@ -4,54 +4,55 @@
 #include <openssl/x509v3.h>
 #include <string.h>
 
-#include "headers/name_descriptions.h"
+#include "headers/name_descs.h"
+#include "headers/bdd_name_descs.h"
 #include "headers/bdd_service.h"
 #include "headers/bdd_ssl_ctx_skel.h"
 
-// struct bdd_name_description
-struct bdd_name_description *bdd_name_description_alloc(void) {
-	struct bdd_name_description *name_description = malloc(sizeof(struct bdd_name_description));
-	if (name_description == NULL) {
+// struct bdd_name_desc
+struct bdd_name_desc *bdd_name_desc_alloc(void) {
+	struct bdd_name_desc *name_desc = malloc(sizeof(struct bdd_name_desc));
+	if (name_desc == NULL) {
 		return NULL;
 	}
-	name_description->x509 = NULL;
-	name_description->pkey = NULL;
-	name_description->service_instances = NULL;
-	return name_description;
+	name_desc->x509 = NULL;
+	name_desc->pkey = NULL;
+	name_desc->service_instances = NULL;
+	return name_desc;
 }
 
-void bdd_name_description_clean_cert_pkey(struct bdd_name_description *name_description) {
-	if (name_description->x509 != NULL) {
+void bdd_name_desc_clean_cert_pkey(struct bdd_name_desc *name_desc) {
+	if (name_desc->x509 != NULL) {
 		// misleading function name; it actually
 		// decs the ref count and frees the shit
 		// if the rc hits 0
-		X509_free(name_description->x509);
-		EVP_PKEY_free(name_description->pkey);
-		name_description->x509 = NULL;
-		name_description->pkey = NULL;
+		X509_free(name_desc->x509);
+		EVP_PKEY_free(name_desc->pkey);
+		name_desc->x509 = NULL;
+		name_desc->pkey = NULL;
 	}
 	return;
 }
 
-void bdd_name_description_clean_services(struct bdd_name_description *name_description) {
+void bdd_name_desc_clean_services(struct bdd_name_desc *name_desc) {
 	for (
-		struct bdd_service_instance **service_inst = &(name_description->service_instances);
+		struct bdd_service_instance **service_inst = &(name_desc->service_instances);
 		(*service_inst) != NULL;
 	) {
 		struct bdd_service_instance *curr = (*service_inst);
 		(*service_inst) = curr->next;
-		curr->service->instance_info_destructor(curr->instance_info);
+		curr->service->instance_info_destructor((void *)curr->instance_info);
 		free(curr);
 	}
 	return;
 }
 
-bool bdd_name_description_add_service_instance(
-	struct bdd_name_description *name_description,
-	struct bdd_service_instance *service_inst
+bool bdd_name_desc_add_service_instance(
+	struct bdd_name_desc *name_desc,
+	struct bdd_service_instance **service_inst
 ) {
-	struct bdd_service_instance **curr = &(name_description->service_instances);
-	const char *const *inst_sp = service_inst->service->supported_protocols;
+	struct bdd_service_instance **curr = &(name_desc->service_instances);
+	const char *const *inst_sp = (*service_inst)->service->supported_protocols;
 	for (; (*curr) != NULL; curr = &((*curr)->next)) {
 		const char *const *curr_sp = (*curr)->service->supported_protocols;
 		if (inst_sp == NULL || curr_sp == NULL) {
@@ -68,27 +69,35 @@ bool bdd_name_description_add_service_instance(
 			}
 		}
 	}
-	(*curr) = service_inst;
+	(*curr) = (*service_inst);
+	(*service_inst) = NULL;
 	return true;
 }
 
-void bdd_name_description_set_cert_pkey(struct bdd_name_description *name_description, X509 *x509, EVP_PKEY *pkey) {
-	bdd_name_description_clean_cert_pkey(name_description);
-	name_description->x509 = x509;
-	name_description->pkey = pkey;
+void bdd_name_desc_set_cert_pkey(struct bdd_name_desc *name_desc, X509 *x509, EVP_PKEY *pkey) {
+	bdd_name_desc_clean_cert_pkey(name_desc);
+	name_desc->x509 = x509;
+	name_desc->pkey = pkey;
 	return;
 }
 
-void bdd_name_description_destroy(struct bdd_name_description *name_description) {
-	bdd_name_description_clean_services(name_description);
-	bdd_name_description_clean_cert_pkey(name_description);
-	free(name_description);
+void bdd_name_desc_destroy(struct bdd_name_desc *name_desc) {
+	bdd_name_desc_clean_services(name_desc);
+	bdd_name_desc_clean_cert_pkey(name_desc);
+	free(name_desc);
+	return;
+}
+
+void bdd_name_desc_destroy_hm(struct bdd_name_desc *name_desc, enum hashmap_drop_mode _) {
+	bdd_name_desc_destroy(name_desc);
 	return;
 }
 
 
-// name_descriptions hashmap
-#define bdd_name_descriptions() \
+// name_descs hashmap
+#define bdd_name_descs_prelude() \
+	bool r = false; \
+	struct hashmap *name_descs = (struct hashmap *)bdd_name_descs; \
 	if (scope_sz > 254 || (scope_sz == 254 && scope[253] != '.')) { \
 		return false; \
 	} \
@@ -102,77 +111,91 @@ void bdd_name_description_destroy(struct bdd_name_description *name_description)
 		scope += 1; \
 		scope_sz -= 1; \
 	} \
-	struct bdd_name_description *name_description \
-		= locked_hashmap_get_wl(name_descriptions, (char *)scope, scope_sz); \
-	bool created_name_description; \
-	if (name_description == NULL) { \
-		if ((name_description = bdd_name_description_alloc()) == NULL) { \
-			return false; \
+	struct hashmap_key key = HASHMAP_KEY_INITIALIZER; \
+	hashmap_key_obtain(name_descs, &(key), (char *)scope, scope_sz); \
+	struct bdd_name_desc *name_desc; \
+	bool created_name_desc; \
+	if (!hashmap_get(name_descs, &(key), (void *)&(name_desc))) { \
+		if ((name_desc = bdd_name_desc_alloc()) == NULL) { \
+			goto out; \
 		} \
-		created_name_description = true; \
+		created_name_desc = true; \
 	} else { \
-		created_name_description = false; \
+		created_name_desc = false; \
 	}
+#define bdd_name_descs_out() \
+	out:; \
+	hashmap_key_release(name_descs, &(key), false); \
+	return r;
 
 // exposed function
-bool bdd_name_descriptions_add_service_instance(
-	struct locked_hashmap *name_descriptions,
+// bdd_name_descs_add_service_instance **cannot** replace a service instance;
+// it may only add service instances.
+bool bdd_name_descs_add_service_instance(
+	struct bdd_name_descs *bdd_name_descs,
 	const char *scope,
 	size_t scope_sz,
 	const struct bdd_service *service,
-	void **instance_info
+	const void **instance_info
 ) {
-	bdd_name_descriptions();
+	bdd_name_descs_prelude();
 
 	struct bdd_service_instance *service_inst = malloc(sizeof(struct bdd_service_instance));
 	service_inst->service = service;
 	service_inst->next = NULL;
-	if (!bdd_name_description_add_service_instance(name_description, service_inst)) {
-		if (created_name_description) {
-			bdd_name_description_destroy(name_description);
+	if (!bdd_name_desc_add_service_instance(name_desc, &(service_inst))) {
+		if (created_name_desc) {
+			bdd_name_desc_destroy(name_desc);
 		}
 		free(service_inst);
-		return false;
+		goto out;
 	}
 
-	if (created_name_description) {
-		if (!locked_hashmap_set_wl(name_descriptions, (char *)scope, scope_sz, name_description, 1)) {
+	if (created_name_desc) {
+		if (!hashmap_set(name_descs, &(key), name_desc)) {
 			// will free service_inst
-			bdd_name_description_destroy(name_description);
-			return false;
+			bdd_name_desc_destroy(name_desc);
+			goto out;
 		}
 	}
 
 	service_inst->instance_info = *instance_info;
 	*instance_info = NULL;
-	return true;
+	r = true;
+
+	goto out;
+
+	bdd_name_descs_out();
 }
 
 // internal function
-bool bdd_name_descriptions_set_cert_pkey(
-	struct locked_hashmap *name_descriptions,
+bool bdd_name_descs_set_cert_pkey(
+	struct bdd_name_descs *bdd_name_descs,
 	const char *scope,
 	size_t scope_sz,
 	X509 *x509,
 	EVP_PKEY *pkey
 ) {
-	bdd_name_descriptions();
+	bdd_name_descs_prelude();
 
-	bdd_name_description_set_cert_pkey(name_description, x509, pkey);
+	bdd_name_desc_set_cert_pkey(name_desc, x509, pkey);
 
-	if (created_name_description) {
-		if (!locked_hashmap_set_wl(name_descriptions, (char *)scope, scope_sz, name_description, 1)) {
-			bdd_name_description_destroy(name_description);
-			return false;
+	if (created_name_desc) {
+		if (!hashmap_set(name_descs, &(key), name_desc)) {
+			bdd_name_desc_destroy(name_desc);
+			goto out;
 		}
 	}
 
-	return true;
+	r = true;
+	goto out;
+
+	bdd_name_descs_out();
 }
 
 // exposed function
-bool bdd_name_descriptions_use_cert_pkey(
-	struct locked_hashmap *name_descriptions,
+bool bdd_name_descs_use_cert_pkey(
+	struct bdd_name_descs *bdd_name_descs,
 	X509 **x509_ref,
 	EVP_PKEY **pkey_ref
 ) {
@@ -193,8 +216,8 @@ bool bdd_name_descriptions_use_cert_pkey(
 			}
 			ASN1_IA5STRING *asn1_str = entry->d.dNSName;
 			int data_length = asn1_str->length;
-			bool s = bdd_name_descriptions_set_cert_pkey(
-				name_descriptions,
+			bool s = bdd_name_descs_set_cert_pkey(
+				bdd_name_descs,
 				(char *)asn1_str->data,
 				data_length,
 				x509,
@@ -228,8 +251,8 @@ bool bdd_name_descriptions_use_cert_pkey(
 					continue;
 				}
 				int data_length = asn1_str->length;
-				bool s = bdd_name_descriptions_set_cert_pkey(
-					name_descriptions,
+				bool s = bdd_name_descs_set_cert_pkey(
+					bdd_name_descs,
 					(char *)asn1_str->data,
 					data_length,
 					x509,
@@ -259,6 +282,11 @@ bool bdd_name_descriptions_use_cert_pkey(
 	return true;
 }
 
-struct hashmap *bdd_name_descriptions_create(void) {
-	return hashmap_create((void (*)(void *)) & (bdd_name_description_destroy));
+struct bdd_name_descs *bdd_name_descs_create(void) {
+	return (struct bdd_name_descs *)hashmap_create(183, 1, (void *)&(bdd_name_desc_destroy_hm));
+}
+
+void bdd_name_descs_destroy(struct bdd_name_descs **name_descs) {
+	hashmap_destroy_ref((struct hashmap **)name_descs);
+	return;
 }

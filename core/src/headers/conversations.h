@@ -84,7 +84,7 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	struct sockaddr client_sockaddr,
 	const struct bdd_service *service,
 	const char *protocol_name,
-	void *instance_info
+	const void *instance_info
 );
 struct bdd_conversation *bdd_conversation_obtain(struct bdd_instance *instance);
 void bdd_conversation_release(struct bdd_instance *instance, struct bdd_conversation **conversation);

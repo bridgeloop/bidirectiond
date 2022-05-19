@@ -4,24 +4,24 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <sys/socket.h>
-#include <hashmap/hashmap.h>
 
 #include "bdd_io_id.h"
 struct bdd_conversation;
+struct bdd_name_descs;
 struct bdd_service {
 	bool (*handle_events)(struct bdd_conversation *conversation, short int *revents);
 
 	bool (*conversation_init)(
 		struct bdd_conversation *conversation,
 		const char *protocol_name,
-		void *instance_info,
+		const void *instance_info,
 		bdd_io_id client_id,
 		struct sockaddr client_sockaddr
 	);
 
 	void (*instance_info_destructor)(void *instance_info);
 	bool (*instantiate)(
-		struct locked_hashmap *name_descriptions,
+		struct bdd_name_descs *name_descs,
 		const struct bdd_service *service,
 		size_t n_arguments,
 		const char **arguments
