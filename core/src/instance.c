@@ -76,7 +76,6 @@ void bdd_destroy(struct bdd_instance *instance) {
 		++idx
 	) {
 		bdd_conversation_deinit(&(instance->conversations[idx]));
-		pthread_mutex_destroy(&(instance->conversations[idx].skip_mutex));
 	}
 	free(instance->conversations);
 
@@ -102,6 +101,7 @@ void bdd_destroy(struct bdd_instance *instance) {
 		pthread_cond_destroy(&(instance->workers[idx].work_cond));
 	}
 
+	free(instance->workers);
 	free(instance);
 
 	while (atomic_flag_test_and_set(&(BDD_GLOBAL_MUTEX)));
@@ -257,9 +257,6 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		++(*idx)
 	) {
 		(*(uint8_t *)&(instance->conversations[(*idx)].struct_type)) = 0;
-		if (pthread_mutex_init(&(instance->conversations[(*idx)].skip_mutex), NULL) != 0) {
-			goto err;
-		}
 		instance->conversations[(*idx)].associated.data = NULL;
 		instance->conversations[(*idx)].associated.destructor = NULL;
 		instance->conversations[(*idx)].io = NULL;

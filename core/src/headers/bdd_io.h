@@ -25,7 +25,8 @@ struct bdd_io {
 
 		in_epoll : 1,
 		no_epoll : 1,
-		hup : 1;
+		hup : 1,
+		rdhup : 1;
 
 	union {
 		int fd;

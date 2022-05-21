@@ -1,3 +1,7 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <assert.h>
 #include <errno.h>
 #include <signal.h>
@@ -15,11 +19,9 @@
 #include "headers/unlikely.h"
 #include "headers/bdd_io.h"
 #include "headers/bdd_poll.h"
-#include "headers/bdd_io_remove.h"
 #include "headers/bdd_io_connect.h"
 #include "headers/bdd_service.h"
 #include "headers/signal.h"
-#include "headers/pollrdhup.h"
 
 time_t bdd_time(void) {
 	time_t ms = 0;
@@ -62,7 +64,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 		int r = read(instance->serve_eventfd, &(g), 8);
 		assert(r == 8 || r < 0);
 	}
-	while ((*to_epoll_head) != NULL) switch ((*to_epoll_head)->struct_type == 0) {
+	while ((*to_epoll_head) != NULL) switch ((*to_epoll_head)->struct_type) {
 		case (0): {
 			struct bdd_conversation *conversation = (void *)(*to_epoll_head);
 			(*to_epoll_head) = conversation->next;
@@ -81,6 +83,10 @@ void *bdd_serve(struct bdd_instance *instance) {
 				}
 
 				int fd = bdd_io_fd(io);
+
+				if (io->rdhup) {
+					io->epoll_events &= ~EPOLLRDHUP;
+				}
 
 				struct epoll_event event = {
 					.events = io->epoll_events,
@@ -104,6 +110,10 @@ void *bdd_serve(struct bdd_instance *instance) {
 
 				any_in_epoll = true;
 				io->in_epoll = 1;
+			}
+
+			if (!any_in_epoll) {
+				goto discard_conversation;
 			}
 
 			conversation->next = NULL;
@@ -147,12 +157,8 @@ void *bdd_serve(struct bdd_instance *instance) {
 		if (conversation == NULL) { // eventfd
 			continue;
 		}
-		if (pthread_mutex_trylock(&(conversation->skip_mutex)) != 0) {
-			continue;
-		}
 		bool skip = conversation->skip;
 		conversation->skip = 1;
-		pthread_mutex_unlock(&(conversation->skip_mutex));
 		if (skip) {
 			continue;
 		}
@@ -186,16 +192,18 @@ void *bdd_serve(struct bdd_instance *instance) {
 		#ifndef NDEBUG
 		bool any_with_events = false;
 		#endif
-		for (bdd_io_id idx = 0; idx < n_io; ++idx) {
-			bool in_epoll = io[idx].in_epoll;
-			io[idx].in_epoll = 0;
-			if (!io[idx].in_epoll) {
+		for (bdd_io_id io_id = 0; io_id < n_io; ++io_id) {
+			bool in_epoll = io[io_id].in_epoll;
+			io[io_id].in_epoll = 0;
+			if (!in_epoll) {
 				no_events:;
-				revents_list[idx] = 0;
+				revents_list[io_id] = 0;
 				continue;
 			}
-			poll_io.io_id = idx;
-			int r = bdd_poll(conversation, &(poll_io), 1, 0);
+			int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, bdd_io_fd(&(io[io_id])), NULL);
+			assert(r == 0);
+			poll_io.io_id = io_id;
+			r = bdd_poll(conversation, &(poll_io), 1, 0);
 			if (r < 0) {
 				conversation->next = conversations_to_discard;
 				conversations_to_discard = conversation;
@@ -205,8 +213,14 @@ void *bdd_serve(struct bdd_instance *instance) {
 				goto no_events;
 			}
 			short int revents = poll_io.revents;
-			revents_list[idx] = revents;
-			if (revents & (POLLERR | POLLHUP | POLLRDHUP)) {
+			if (io->rdhup) {
+				revents &= ~POLLRDHUP;
+			}
+			revents_list[io_id] = revents;
+			if (revents & POLLRDHUP) {
+				io->rdhup = 1;
+			}
+			if (revents & (POLLERR | POLLHUP)) {
 				if (revents & POLLHUP) {
 					io->hup = 1;
 				}

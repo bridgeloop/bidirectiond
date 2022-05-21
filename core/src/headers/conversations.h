@@ -49,12 +49,8 @@ struct bdd_associated {
 // a worker's conversation list does not use the `prev` pointer.
 struct bdd_conversation {
 	const uint8_t struct_type; // constant - set by bdd_go
-	uint8_t
-		skip : 2, // moved out of the valid_conversations linked list - set by bdd_serve
-		noatime : 2; // do not update accessed_at - set by bdd_conversation_init and bdd_serve
-
-	// created by bdd_go, destroyed by bdd_destroy
-	pthread_mutex_t skip_mutex;
+	uint8_t skip; // moved out of the valid_conversations linked list - set by bdd_serve
+	uint8_t noatime; // do not update accessed_at - set by bdd_conversation_init and bdd_serve
 
 	// valid_conversations
 	// set by the to_epoll processor when the conversation is moved into valid_conversations

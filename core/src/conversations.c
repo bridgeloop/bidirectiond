@@ -152,7 +152,7 @@ int bdd_poll(struct bdd_conversation *conversation, struct bdd_poll_io *io_ids, 
 	) {
 		bdd_io_id io_id = io_ids[idx].io_id;
 		struct bdd_io *io = &(conversation->io[io_id]);
-		io_ids[idx].revents = pollfds[idx].revents;
+		io_ids[idx].revents = pollfds[idx].revents;;
 		if (io->ssl) {
 			if (SSL_has_pending(io->io.ssl)) {
 				io_ids[idx].revents |= POLLIN;
@@ -188,31 +188,29 @@ __attribute__((warn_unused_result)) ssize_t bdd_read(
 	}
 
 	ssize_t r = 0;
-	do {
-		if (io->ssl) {
-			r = SSL_read(io->io.ssl, buf, sz);
-			if (r <= 0) {
-				int err = SSL_get_error(io->io.ssl, r);
-				if (err == SSL_ERROR_WANT_WRITE) {
-					return -2;
-				}
-				if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_NONE) {
-					return 0;
-				}
-				bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
-				return -1;
+	if (io->ssl) {
+		r = SSL_read(io->io.ssl, buf, sz);
+		if (r <= 0) {
+			int err = SSL_get_error(io->io.ssl, r);
+			if (err == SSL_ERROR_WANT_WRITE) {
+				return -2;
 			}
-		} else {
-			r = recv(io->io.fd, buf, sz, 0);
-			if (r < 0) {
-				if (errno == EAGAIN || errno == EWOULDBLOCK) {
-					return 0;
-				}
-				bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
-				return -1;
+			if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_NONE) {
+				return 0;
 			}
+			bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
+			return -1;
 		}
-	} while (r < 0 && errno == EINTR);
+	} else {
+		r = read(io->io.fd, buf, sz);
+		if (r < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				return 0;
+			}
+			bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
+			return -1;
+		}
+	}
 	return r;
 }
 
@@ -322,6 +320,7 @@ bool bdd_io_create(
 	io->in_epoll = 0;
 	io->no_epoll = 0;
 	io->hup = 0;
+	io->rdhup = 0;
 	io->io.fd = fd;
 	(*io_id) = idx;
 	return true;
@@ -392,7 +391,7 @@ enum bdd_io_connect_status bdd_io_connect(struct bdd_conversation *conversation,
 	struct bdd_io *io = &(conversation->io[io_id]);
 
 	switch (bdd_io_state(io)) {
-		case (BDD_IO_STATE_CONNECT): case (BDD_IO_STATE_CREATED): {
+		case (BDD_IO_STATE_CREATED): case (BDD_IO_STATE_CONNECT): {
 			if (addr == NULL || addrlen == 0) {
 				err = "programming error: bdd_io_connect called with invalid arguments\n";
 				goto err;
@@ -410,9 +409,9 @@ enum bdd_io_connect_status bdd_io_connect(struct bdd_conversation *conversation,
 					goto err;
 				}
 			}
-			// connected
-			break;
+			goto connected;
 		}
+
 		case (BDD_IO_STATE_CONNECTING): {
 			struct pollfd pollfd = {
 				.fd = bdd_io_fd(io),
@@ -427,6 +426,8 @@ enum bdd_io_connect_status bdd_io_connect(struct bdd_conversation *conversation,
 				}
 				return bdd_io_connect_wants_write;
 			}
+
+			connected:;
 
 			if (!io->ssl) {
 				bdd_io_set_state(io, BDD_IO_STATE_ESTABLISHED);
@@ -686,6 +687,7 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	conversation->io[0].in_epoll = 0;
 	conversation->io[0].no_epoll = 0;
 	conversation->io[0].hup = 0;
+	conversation->io[0].rdhup = 0;
 
 	(*client_ssl_ref) = NULL;
 	conversation->io[0].io.ssl = client_ssl;

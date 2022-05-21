@@ -7,6 +7,7 @@ declarations = ""
 services = "const struct bdd_service services[] = {"
 n_services = 0
 def append_service(service):
+	global declarations, services, n_services
 	service_str = "{"
 	key, value = None, None
 	#
@@ -15,7 +16,7 @@ def append_service(service):
 		value = service[key]
 		if type(value) != str:
 			raise Exception("error")
-		declarations += f"bool {value}(struct bdd_conversation *conversation, const char *protocol_name, void *instance_info, bdd_io_id client_id, struct sockaddr client_sockaddr);"
+		declarations += f"bool {value}(struct bdd_conversation *conversation, const char *protocol_name, const void *instance_info, bdd_io_id client_id, struct sockaddr client_sockaddr);"
 	else:
 		value = "NULL"
 	service_str += f".{key} = &({value}),"
@@ -34,20 +35,20 @@ def append_service(service):
 	value = service[key]
 	if type(value) != str:
 		raise Exception("error")
-	declarations += f"void {value}(void *instance_info);"
+	declarations += f"bool {value}(struct bdd_name_descs *name_descs, const struct bdd_service *service, size_t n_arguments, const char **arguments);"
 	service_str += f".{key} = &({value}),"
 	#
 	key = "n_max_io"
-	n_max_io = service[key]
-	if type(n_max_io) != int:
+	value = service[key]
+	if type(value) != int:
 		raise Exception("error")
-	service_str += f".{key} = {n_max_io},"
+	service_str += f".{key} = {value},"
 	#
 	key = "handle_events"
 	value = service[key]
 	if type(value) != str:
 		raise Exception("error")
-	declarations += f"void {key}(struct bdd_conversation *conversation, const short int (*revents)[{n_max_io}]);"
+	declarations += f"void {value}(struct bdd_conversation *conversation, const short int *revents);"
 	service_str += f".{key} = &({value}),"
 	#
 	key = "supported_protocols"
@@ -78,7 +79,7 @@ def append_service(service):
 	service_str += f".{key} = {value},"
 	#
 	key = "arguments_help"
-	value = service[key]
+	value = json.dumps(service[key])
 	if type(value) != str:
 		raise Exception("error")
 	service_str += f".{key} = (char *){value},"

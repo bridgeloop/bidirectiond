@@ -41,7 +41,9 @@ void bdd_name_desc_clean_services(struct bdd_name_desc *name_desc) {
 	) {
 		struct bdd_service_instance *curr = (*service_inst);
 		(*service_inst) = curr->next;
-		curr->service->instance_info_destructor((void *)curr->instance_info);
+		if (curr->instance_info != NULL) {
+			curr->service->instance_info_destructor((void *)curr->instance_info);
+		}
 		free(curr);
 	}
 	return;
@@ -49,10 +51,10 @@ void bdd_name_desc_clean_services(struct bdd_name_desc *name_desc) {
 
 bool bdd_name_desc_add_service_instance(
 	struct bdd_name_desc *name_desc,
-	struct bdd_service_instance **service_inst
+	struct bdd_service_instance *service_inst
 ) {
 	struct bdd_service_instance **curr = &(name_desc->service_instances);
-	const char *const *inst_sp = (*service_inst)->service->supported_protocols;
+	const char *const *inst_sp = service_inst->service->supported_protocols;
 	for (; (*curr) != NULL; curr = &((*curr)->next)) {
 		const char *const *curr_sp = (*curr)->service->supported_protocols;
 		if (inst_sp == NULL || curr_sp == NULL) {
@@ -69,8 +71,7 @@ bool bdd_name_desc_add_service_instance(
 			}
 		}
 	}
-	(*curr) = (*service_inst);
-	(*service_inst) = NULL;
+	(*curr) = service_inst;
 	return true;
 }
 
@@ -141,9 +142,12 @@ bool bdd_name_descs_add_service_instance(
 	bdd_name_descs_prelude();
 
 	struct bdd_service_instance *service_inst = malloc(sizeof(struct bdd_service_instance));
+	if (service_inst == NULL) {
+		goto out;
+	}
 	service_inst->service = service;
 	service_inst->next = NULL;
-	if (!bdd_name_desc_add_service_instance(name_desc, &(service_inst))) {
+	if (!bdd_name_desc_add_service_instance(name_desc, service_inst)) {
 		if (created_name_desc) {
 			bdd_name_desc_destroy(name_desc);
 		}

@@ -5,9 +5,7 @@
 #include <stddef.h>
 #include <sys/socket.h>
 #include <sys/epoll.h>
-#include <hashmap/hashmap.h>
 
-#include "../src/headers/pollrdhup.h"
 #include "../src/headers/bdd_io_id.h"
 #include "../src/headers/bdd_service.h"
 #include "../src/headers/bdd_io_remove.h"

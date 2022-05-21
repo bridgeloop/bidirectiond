@@ -227,6 +227,7 @@ void *bdd_accept(struct bdd_instance *instance) {
 		goto err;
 	}
 #endif
+	puts("here!");
 	switch (bdd_conversation_init(
 		conversation,
 		&(client_ssl),
