@@ -58,14 +58,14 @@ bool bdd_name_descs_add_service_instance(
 bool bdd_io_set_epoll_events(
 	struct bdd_conversation *conversation,
 	bdd_io_id io_id,
-	short int epoll_events
+	uint32_t epoll_events
 );
 bool bdd_io_set_blocking(
 	struct bdd_conversation *conversation,
 	bdd_io_id io_id,
 	bool block
 );
-short int bdd_io_epoll_events(struct bdd_conversation *conversation, bdd_io_id io_id);
+uint32_t bdd_io_epoll_events(struct bdd_conversation *conversation, bdd_io_id io_id);
 bool bdd_io_blocking(struct bdd_conversation *conversation, bdd_io_id io_id);
 
 #endif

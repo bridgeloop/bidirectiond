@@ -588,7 +588,7 @@ bool bdd_io_set_blocking(struct bdd_conversation *conversation, bdd_io_id io_id,
 	}
 	return true;
 }
-bool bdd_io_set_epoll_events(struct bdd_conversation *conversation, bdd_io_id io_id, short int epoll_events) {
+bool bdd_io_set_epoll_events(struct bdd_conversation *conversation, bdd_io_id io_id, uint32_t epoll_events) {
 	if (conversation == NULL || io_id < 0 || io_id >= bdd_conversation_n_max_io(conversation)) {
 		fputs("programming error: bdd_io_set_epoll_events called with invalid arguments\n", stderr);
 		assert(false);
@@ -637,7 +637,7 @@ bool bdd_io_blocking(struct bdd_conversation *conversation, bdd_io_id io_id) {
 	}
 	return (flags & O_NONBLOCK) ? false : true;
 }
-short int bdd_io_epoll_events(struct bdd_conversation *conversation, bdd_io_id io_id) {
+uint32_t bdd_io_epoll_events(struct bdd_conversation *conversation, bdd_io_id io_id) {
 	if (conversation == NULL || io_id < 0 || io_id >= bdd_conversation_n_max_io(conversation)) {
 		fputs("programming error: bdd_io_epoll_events called with invalid arguments\n", stderr);
 		assert(false);
@@ -657,6 +657,8 @@ short int bdd_io_epoll_events(struct bdd_conversation *conversation, bdd_io_id i
 	}
 	return io->epoll_events;
 }
+
+// init and de-init obtained conversations //
 
 enum bdd_conversation_init_status bdd_conversation_init(
 	struct bdd_conversation *conversation,
@@ -722,6 +724,9 @@ void bdd_conversation_deinit(struct bdd_conversation *conversation) {
 	bdd_set_associated(conversation, NULL, NULL);
 	return;
 }
+
+// put a conversation into conversations_to_epoll //
+
 void bdd_conversation_link(struct bdd_instance *instance, struct bdd_conversation **conversation_ref) {
 	assert(conversation_ref != NULL);
 	struct bdd_conversation *conversation = (*conversation_ref);
@@ -734,6 +739,8 @@ void bdd_conversation_link(struct bdd_instance *instance, struct bdd_conversatio
 	pthread_mutex_unlock(&(instance->conversations_to_epoll.mutex));
 	return;
 }
+
+// safely obtain and release conversations //
 struct bdd_conversation *bdd_conversation_obtain(struct bdd_instance *instance) {
 	struct bdd_conversation *conversation = NULL;
 	pthread_mutex_lock(&(instance->available_conversations.mutex));
