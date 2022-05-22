@@ -44,6 +44,9 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_instance *instance) {
 	if (SSL_client_hello_get0_ext(client_ssl, TLSEXT_TYPE_server_name, &(extension), &(extension_sz)) == 0) {
 		return SSL_CLIENT_HELLO_ERROR;
 	}
+	if (extension == NULL) {
+		return SSL_CLIENT_HELLO_ERROR;
+	}
 	if (extension_sz <= 4) {
 		return SSL_CLIENT_HELLO_ERROR;
 	}
@@ -61,6 +64,9 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_instance *instance) {
 	const unsigned char *alpn;
 	size_t alpn_sz;
 	if (SSL_client_hello_get0_ext(client_ssl, TLSEXT_TYPE_application_layer_protocol_negotiation, &(alpn), &(alpn_sz)) != 0) {
+		if (alpn == NULL) {
+			goto alpn_err;
+		}
 		if (alpn_sz <= 3) {
 			goto alpn_err;
 		}
@@ -99,7 +105,7 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_instance *instance) {
 				unsigned short int offset = alpn_sz;
 				struct bdd_service_instance *found = NULL;
 
-				if (alpn == NULL || unlikely(alpn_sz == 0) /* to-do: is that case possible if alpn is non-null? */) {
+				if (alpn == NULL) {
 					goto skip_alpn;
 				}
 
@@ -182,12 +188,8 @@ void *bdd_accept(struct bdd_instance *instance) {
 	ctx->protocol_name = NULL;
 	ctx->cstr_protocol_name = NULL;
 	int cl_socket = -1;
-
-#ifdef BIDIRECTIOND_ACCEPT_OCBCNS
-	if ((conversation = bdd_conversation_obtain(instance)) == NULL) {
-		goto err;
-	}
-#endif
+	conversation = bdd_conversation_obtain(instance);
+	assert(conversation != NULL);
 	if ((client_ssl = SSL_new(instance->accept.ssl_ctx)) == NULL) {
 		goto err;
 	}
@@ -222,12 +224,6 @@ void *bdd_accept(struct bdd_instance *instance) {
 	assert(ctx->service_instance != NULL);
 
 	struct bdd_service_instance *service_inst = ctx->service_instance;
-#ifndef BIDIRECTIOND_ACCEPT_OCBCNS
-	if ((conversation = bdd_conversation_obtain(instance)) == NULL) {
-		goto err;
-	}
-#endif
-	puts("here!");
 	switch (bdd_conversation_init(
 		conversation,
 		&(client_ssl),

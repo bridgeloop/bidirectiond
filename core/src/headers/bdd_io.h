@@ -13,7 +13,7 @@
 #define BDD_IO_STATE_BROKEN 6
 
 struct bdd_io {
-	short int epoll_events;
+	uint32_t epoll_events;
 
 	uint16_t
 		state : 3,

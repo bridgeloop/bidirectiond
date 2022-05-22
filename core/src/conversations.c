@@ -82,19 +82,19 @@ bool bdd_io_has_epoll_state(struct bdd_io *io) {
 	);
 }
 
-int bdd_poll(struct bdd_conversation *conversation, struct bdd_poll_io *io_ids, bdd_io_id n_io_ids, int timeout) {
-	if (conversation == NULL || io_ids == NULL || n_io_ids == 0) {
+int bdd_poll(struct bdd_conversation *conversation, struct bdd_poll_io *poll_io, bdd_io_id n_poll_io, int timeout) {
+	if (conversation == NULL || poll_io == NULL || n_poll_io == 0) {
 		fputs("programming error: bdd_poll called with invalid arguments\n", stderr);
 		assert(false);
 		return -1;
 	}
 	struct pollfd *pollfds;
 	bool heap;
-	if (n_io_ids <= 0x7f) {
-		pollfds = alloca(n_io_ids * sizeof(struct pollfd));
+	if (n_poll_io <= 0x7f) {
+		pollfds = alloca(n_poll_io * sizeof(struct pollfd));
 		heap = false;
 	} else {
-		pollfds = malloc(n_io_ids * sizeof(struct pollfd));
+		pollfds = malloc(n_poll_io * sizeof(struct pollfd));
 		if (pollfds == NULL) {
 			fputs("bdd_poll malloc failed\n", stderr);
 			return -1;
@@ -104,10 +104,10 @@ int bdd_poll(struct bdd_conversation *conversation, struct bdd_poll_io *io_ids, 
 	int n_revents = -1;
 	for (
 		bdd_io_id idx = 0;
-		idx < n_io_ids;
+		idx < n_poll_io;
 		++idx
 	) {
-		bdd_io_id io_id = io_ids[idx].io_id;
+		bdd_io_id io_id = poll_io[idx].io_id;
 		if (io_id == BDD_IO_ID_NVAL) {
 			pollfds[idx].fd = -1;
 			pollfds[idx].events = 0;
@@ -138,29 +138,33 @@ int bdd_poll(struct bdd_conversation *conversation, struct bdd_poll_io *io_ids, 
 				timeout = 0;
 			}
 		}
-		pollfds[idx].events = io_ids[idx].events;
+		pollfds[idx].events = poll_io[idx].events;
 		pollfds[idx].revents = 0;
 	}
-	n_revents = poll(pollfds, n_io_ids, timeout);
+	n_revents = poll(pollfds, n_poll_io, timeout);
 	if (n_revents < 0) {
 		goto out;
 	}
 	for (
 		bdd_io_id idx = 0;
-		idx < n_io_ids;
+		idx < n_poll_io;
 		++idx
 	) {
-		bdd_io_id io_id = io_ids[idx].io_id;
+		bdd_io_id io_id = poll_io[idx].io_id;
+		if (io_id == BDD_IO_ID_NVAL) {
+			continue;
+		}
 		struct bdd_io *io = &(conversation->io[io_id]);
-		io_ids[idx].revents = pollfds[idx].revents;;
-		if (io->ssl) {
+		if (io->ssl && (poll_io[idx].events & POLLIN)) {
 			if (SSL_has_pending(io->io.ssl)) {
-				io_ids[idx].revents |= POLLIN;
 				if (pollfds[idx].revents == 0) {
 					n_revents += 1;
 				}
+				pollfds[idx].revents |= POLLIN;
 			}
 		}
+		poll_io[idx].revents = pollfds[idx].revents;
+
 	}
 	out:;
 	if (heap) {
@@ -723,11 +727,11 @@ void bdd_conversation_link(struct bdd_instance *instance, struct bdd_conversatio
 	struct bdd_conversation *conversation = (*conversation_ref);
 	(*conversation_ref) = NULL;
 	assert(conversation != NULL);
-	pthread_mutex_lock(&(instance->to_epoll.mutex));
-	conversation->next = (void *)instance->to_epoll.head;
-	instance->to_epoll.head = (void *)conversation;
+	pthread_mutex_lock(&(instance->conversations_to_epoll.mutex));
+	conversation->next = instance->conversations_to_epoll.head;
+	instance->conversations_to_epoll.head = conversation;
 	bdd_signal(instance);
-	pthread_mutex_unlock(&(instance->to_epoll.mutex));
+	pthread_mutex_unlock(&(instance->conversations_to_epoll.mutex));
 	return;
 }
 struct bdd_conversation *bdd_conversation_obtain(struct bdd_instance *instance) {

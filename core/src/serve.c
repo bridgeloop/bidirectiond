@@ -40,7 +40,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 
 	int epoll_timeout = instance->epoll_timeout;
 
-	struct bdd_to_epoll **to_epoll_head = &(instance->to_epoll.head);
+	struct bdd_conversation **conversations_to_epoll = &(instance->conversations_to_epoll.head);
 
 	epoll:;
 
@@ -58,93 +58,86 @@ void *bdd_serve(struct bdd_instance *instance) {
 		bdd_thread_exit(instance);
 	}
 
-	pthread_mutex_lock(&(instance->to_epoll.mutex));
+	pthread_mutex_lock(&(instance->conversations_to_epoll.mutex));
 	{
 		char g[8];
 		int r = read(instance->serve_eventfd, &(g), 8);
 		assert(r == 8 || r < 0);
 	}
-	while ((*to_epoll_head) != NULL) switch ((*to_epoll_head)->struct_type) {
-		case (0): {
-			struct bdd_conversation *conversation = (void *)(*to_epoll_head);
-			(*to_epoll_head) = conversation->next;
+	while ((*conversations_to_epoll) != NULL) {
+		struct bdd_conversation *conversation = *conversations_to_epoll;
+		(*conversations_to_epoll) = conversation->next;
 
-			conversation->skip = 0;
+		conversation->skip = 0;
 
-			// add the IOs' fds to epoll
-			// discard the conversation if no IOs are eligible
-			bool any_in_epoll = false;
+		// add the IOs' fds to epoll
+		// discard the conversation if no IOs are eligible
+		bool any_in_epoll = false;
 
-			for (bdd_io_id idx = 0; idx < bdd_conversation_n_max_io(conversation); ++idx) {
-				struct bdd_io *io = &(conversation->io[idx]);
-				if (!bdd_io_has_epoll_state(io) || io->no_epoll) {
-					io->in_epoll = 0;
-					continue;
-				}
-
-				int fd = bdd_io_fd(io);
-
-				if (io->rdhup) {
-					io->epoll_events &= ~EPOLLRDHUP;
-				}
-
-				struct epoll_event event = {
-					.events = io->epoll_events,
-					.data = {
-						.ptr = conversation,
-					},
-				};
-				if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
-					for (bdd_io_id idx2 = 0; idx2 < idx; ++idx2) {
-						io = &(conversation->io[idx2]);
-						if (!io->in_epoll) {
-							continue;
-						}
-						fd = bdd_io_fd(io);
-
-						int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
-						assert(r == 0);
-					}
-					goto discard_conversation;
-				}
-
-				any_in_epoll = true;
-				io->in_epoll = 1;
+		for (bdd_io_id idx = 0; idx < bdd_conversation_n_max_io(conversation); ++idx) {
+			struct bdd_io *io = &(conversation->io[idx]);
+			if (!bdd_io_has_epoll_state(io) || io->no_epoll) {
+				io->in_epoll = 0;
+				continue;
 			}
 
-			if (!any_in_epoll) {
+			int fd = bdd_io_fd(io);
+
+			if (io->rdhup) {
+				io->epoll_events &= ~(EPOLLRDHUP | EPOLLIN);
+			}
+
+			struct epoll_event event = {
+				.events = io->epoll_events,
+				.data = {
+					.ptr = conversation,
+				},
+			};
+			if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
+				for (bdd_io_id idx2 = 0; idx2 < idx; ++idx2) {
+					io = &(conversation->io[idx2]);
+					if (!io->in_epoll) {
+						continue;
+					}
+					fd = bdd_io_fd(io);
+
+					int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+					assert(r == 0);
+				}
 				goto discard_conversation;
 			}
 
-			conversation->next = NULL;
-			if (conversation->noatime) {
-				conversation->noatime = 0;
-			} else {
-				conversation->accessed_at = bdd_time();
-			}
-			if (valid_conversations == NULL) {
-				assert(valid_conversations_tail == NULL);
-				conversation->prev = NULL;
-				valid_conversations_tail = valid_conversations = conversation;
-			} else {
-				assert(valid_conversations_tail != NULL);
-				(conversation->prev = valid_conversations_tail)->next = conversation;
-				valid_conversations_tail = conversation;
-			}
-
-			break;
-
-			discard_conversation:;
-			bdd_conversation_deinit(conversation);
-			bdd_conversation_release(instance, &(conversation));
-
-			break;
+			any_in_epoll = true;
+			io->in_epoll = 1;
 		}
-		default: {
-			abort();
+
+		if (!any_in_epoll) {
+			goto discard_conversation;
 		}
+
+		conversation->next = NULL;
+		if (conversation->noatime) {
+			conversation->noatime = 0;
+		} else {
+			conversation->accessed_at = bdd_time();
+		}
+		if (valid_conversations == NULL) {
+			assert(valid_conversations_tail == NULL);
+			conversation->prev = NULL;
+			valid_conversations_tail = valid_conversations = conversation;
+		} else {
+			assert(valid_conversations_tail != NULL);
+			(conversation->prev = valid_conversations_tail)->next = conversation;
+			valid_conversations_tail = conversation;
+		}
+
+		continue;
+
+		discard_conversation:;
+		bdd_conversation_deinit(conversation);
+		bdd_conversation_release(instance, &(conversation));
 	}
-	pthread_mutex_unlock(&(instance->to_epoll.mutex));
+	pthread_mutex_unlock(&(instance->conversations_to_epoll.mutex));
 
 	if (unlikely(atomic_load(&(instance->exiting)))) {
 		bdd_thread_exit(instance);
@@ -157,7 +150,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 		if (conversation == NULL) { // eventfd
 			continue;
 		}
-		bool skip = conversation->skip;
+		uint8_t skip = conversation->skip;
 		conversation->skip = 1;
 		if (skip) {
 			continue;
@@ -209,22 +202,22 @@ void *bdd_serve(struct bdd_instance *instance) {
 				conversations_to_discard = conversation;
 				goto events_iter;
 			}
-			if (r == 0) {
-				goto no_events;
-			}
 			short int revents = poll_io.revents;
 			if (io->rdhup) {
-				revents &= ~POLLRDHUP;
+				revents &= ~(POLLRDHUP | POLLIN);
+			}
+			if (r == 0 || revents == 0) {
+				goto no_events;
 			}
 			revents_list[io_id] = revents;
 			if (revents & POLLRDHUP) {
-				io->rdhup = 1;
+				io[io_id].rdhup = 1;
 			}
-			if (revents & (POLLERR | POLLHUP)) {
-				if (revents & POLLHUP) {
-					io->hup = 1;
-				}
-				io->no_epoll = 1;
+			if (revents & POLLHUP) {
+				io[io_id].hup = 1;
+				io[io_id].no_epoll = 1;
+			} else if (revents & POLLERR) {
+				io[io_id].no_epoll = 1;
 			}
 			#ifndef NDEBUG
 			any_with_events = true;
@@ -262,7 +255,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 			worker->conversations_appender = &(worker->conversations);
 		}
 		(*(worker->conversations_appender)) = conversation;
-		worker->conversations_appender = (void *)&(conversation->next);
+		worker->conversations_appender = &(conversation->next);
 		pthread_cond_signal(&(worker->work_cond));
 		pthread_mutex_unlock(&(worker->work_mutex));
 

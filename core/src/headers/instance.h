@@ -12,9 +12,6 @@ struct bdd_conversation;
 struct bdd_worker;
 #include <stddef.h>
 
-struct bdd_to_epoll {
-	uint8_t struct_type;
-};
 struct bdd_instance {
 	sigset_t sigmask;
 
@@ -48,8 +45,8 @@ struct bdd_instance {
 
 	struct {
 		pthread_mutex_t mutex;
-		struct bdd_to_epoll *head;
-	} to_epoll;
+		struct bdd_conversation *head;
+	} conversations_to_epoll;
 
 	struct {
 		int eventfd;

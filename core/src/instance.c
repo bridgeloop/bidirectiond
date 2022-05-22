@@ -79,7 +79,7 @@ void bdd_destroy(struct bdd_instance *instance) {
 	}
 	free(instance->conversations);
 
-	pthread_mutex_destroy(&(instance->to_epoll.mutex));
+	pthread_mutex_destroy(&(instance->conversations_to_epoll.mutex));
 
 	close(instance->accept.eventfd);
 	if (instance->accept.ssl_ctx != NULL) {
@@ -147,8 +147,8 @@ struct bdd_instance *bdd_instance_alloc(void) {
 	bdd_mutex_preinit(&(instance->available_conversations.mutex));
 	bdd_cond_preinit(&(instance->available_conversations.cond));
 	// linked conversations
-	bdd_mutex_preinit(&(instance->to_epoll.mutex));
-	instance->to_epoll.head = NULL;
+	bdd_mutex_preinit(&(instance->conversations_to_epoll.mutex));
+	instance->conversations_to_epoll.head = NULL;
 	// accept thread stuff
 	instance->accept.eventfd = -1;
 	for (uint8_t idx = 0; idx < 2; ++idx) {
@@ -160,7 +160,7 @@ struct bdd_instance *bdd_instance_alloc(void) {
 	instance->accept.ctx.service_instance = NULL;
 	instance->accept.ctx.protocol_name = NULL;
 	instance->accept.ctx.cstr_protocol_name = NULL;
-	instance->to_epoll.head = NULL;
+	instance->conversations_to_epoll.head = NULL;
 	// serve_eventfd
 	instance->serve_eventfd = -1;
 	// workers
@@ -256,17 +256,16 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		(*idx) < settings.n_conversations;
 		++(*idx)
 	) {
-		(*(uint8_t *)&(instance->conversations[(*idx)].struct_type)) = 0;
 		instance->conversations[(*idx)].associated.data = NULL;
 		instance->conversations[(*idx)].associated.destructor = NULL;
 		instance->conversations[(*idx)].io = NULL;
 		instance->available_conversations.ids[(*idx)] = (*idx);
 	}
 	// to epoll
-	if (pthread_mutex_init(&(instance->to_epoll.mutex), NULL) != 0) {
+	if (pthread_mutex_init(&(instance->conversations_to_epoll.mutex), NULL) != 0) {
 		goto err;
 	}
-	instance->to_epoll.head = NULL;
+	instance->conversations_to_epoll.head = NULL;
 	// accept
 	if ((instance->accept.eventfd = eventfd(0, EFD_NONBLOCK)) < 0) {
 		goto err;

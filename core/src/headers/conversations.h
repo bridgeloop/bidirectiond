@@ -24,11 +24,11 @@ struct bdd_associated {
 // bdd_conversations are passed around four differently-purposed
 // linked lists.
 
-// to_epoll is a list of conversations to be processed
+// conversations_to_epoll is a list of conversations to be processed
 // by a loop in serve.c which will either discard a conversation,
 // or add it to an epoll instance, and then move it into
 // valid_conversations.
-// to_epoll does not use the `prev` pointer.
+// conversations_to_epoll does not use the `prev` pointer.
 
 // valid_conversations is a linked list of conversations that are
 // in the epoll instance. conversations in valid_conversations that
@@ -48,17 +48,13 @@ struct bdd_associated {
 // should be passed to a service's serve function.
 // a worker's conversation list does not use the `prev` pointer.
 struct bdd_conversation {
-	const uint8_t struct_type; // constant - set by bdd_go
-	uint8_t skip; // moved out of the valid_conversations linked list - set by bdd_serve
-	uint8_t noatime; // do not update accessed_at - set by bdd_conversation_init and bdd_serve
-
 	// valid_conversations
-	// set by the to_epoll processor when the conversation is moved into valid_conversations
+	// set by the conversations_to_epoll processor when the conversation is moved into valid_conversations
 	time_t accessed_at;
 	struct bdd_conversation *prev;
 	// all linked lists of bdd_conversations
 	// set when a conversation is moved into a linked list
-	void *next;
+	struct bdd_conversation *next;
 
 	// set by bdd_conversation_init
 	const struct bdd_service *service;
@@ -67,6 +63,10 @@ struct bdd_conversation {
 	struct bdd_io *io;
 	// technically set by a service, destroyed by a service or bdd_conversation_deinit
 	struct bdd_associated associated;
+
+	uint8_t
+		skip : 4, // moved out of the valid_conversations linked list - set by bdd_serve
+		noatime : 4; // do not update accessed_at - set by bdd_conversation_init and bdd_serve
 };
 
 enum bdd_conversation_init_status {
