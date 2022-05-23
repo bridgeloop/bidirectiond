@@ -76,6 +76,7 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_instance *instance) {
 		if (alpn[1] != alpn_sz - 2) {
 			goto alpn_err;
 		}
+		// skip the 0 byte, and also skip the size byte
 		alpn += 2;
 		alpn_sz -= 2;
 	} else {
@@ -99,55 +100,81 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_instance *instance) {
 				SSL_use_certificate(client_ssl, name_desc->x509);
 				SSL_use_PrivateKey(client_ssl, name_desc->pkey);
 			}
-			struct bdd_service_instance *inst;
-			if (!(found_req & 0b10) && (inst = name_desc->service_instances) != NULL) {
-				const char *cstr_protocol_name = NULL;
-				unsigned short int offset = alpn_sz;
+			struct bdd_service_instance *inst = name_desc->service_instances;
+			if (!(found_req & 0b10) && inst != NULL) {
 				struct bdd_service_instance *found = NULL;
-
+				// the client has not sent the alpn extension
 				if (alpn == NULL) {
+					// use the first service instance in the linked list
+					found = inst;
 					goto skip_alpn;
 				}
 
+				// find the service which implements either the client's most preferred protocol, or a wildcard
 				do {
 					assert(inst->service != NULL);
+					// the service's supported protocols
 					const char *const *sp = inst->service->supported_protocols;
+					// service supports any protocol (wildcard)
 					if (sp == NULL) {
+						// if we have not found any services which a more
+						// specific protocol of the client's choice yet...
 						if (found == NULL) {
+							// ...then use this service
 							found = inst;
+							uint8_t alpn_len = alpn[0];
+							// bounds checking
+							if (alpn_len == 0 || alpn_sz - 1 < alpn_len) {
+								return SSL_CLIENT_HELLO_ERROR;
+							}
+							assert(ctx->protocol_name == NULL);
+							assert(ctx->cstr_protocol_name == NULL);
 						}
+						// skip the for loop
 						goto alpn_find_iter;
 					}
-					for (unsigned char alpn_idx = 0; alpn_idx < offset;) {
-						unsigned char alpn_len = alpn[alpn_idx];
-						if (alpn_len == 0 || alpn_sz - alpn_idx < alpn_len) {
+					// loop through the list of protocols that the client
+					// prefers (over the currently selected one)
+					for (uint8_t alpn_idx = 0; alpn_idx < alpn_sz;) {
+						uint8_t alpn_len = alpn[alpn_idx];
+						// bounds checking
+						if (alpn_len == 0 || alpn_sz - 1 - alpn_idx < alpn_len) {
 							return SSL_CLIENT_HELLO_ERROR;
 						}
+						// loop through the list of the service's supported protocols' names,
+						// to hopefully find a match for the client's protocol's name
 						for (size_t sp_idx = 0; sp[sp_idx] != NULL; ++sp_idx) {
-							if (strncmp(&(alpn[alpn_idx + 1]), sp[sp_idx], alpn_len) == 0 && alpn_idx < offset) {
-								cstr_protocol_name = sp[sp_idx];
-								if ((offset = alpn_idx) == 0) {
-									goto found_alp;
-								}
+							if (
+								strncmp(
+									&(alpn[alpn_idx + 1 /* length byte */]),
+									sp[sp_idx],
+									alpn_len
+								) == 0
+							) {
+								alpn_sz = alpn_idx; // includes the length byte
+								ctx->protocol_name = &(alpn[alpn_idx]);
+								ctx->cstr_protocol_name = sp[sp_idx];
 								found = inst;
+								// the rest of the service's implemented protocols
+								// cannot be more preferred by the client
+								break;
 							}
 						}
-						alpn_idx += alpn_len + 1;
+						// skip over the current client protocol's length and its name
+						alpn_idx += 1 + alpn_len;
+					}
+					if (alpn_sz == 0) {
+						break;
 					}
 					alpn_find_iter:;
 					inst = inst->next;
 				} while (inst != NULL);
 
-				if ((inst = found) != NULL) {
-					found_alp:;
-					if (cstr_protocol_name != NULL) {
-						ctx->protocol_name = &(alpn[offset]);
-						ctx->cstr_protocol_name = cstr_protocol_name;
-					}
+				if (found != NULL) {
 					skip_alpn:;
-					assert(inst->service != NULL);
+					assert(found->service != NULL);
+					ctx->service_instance = found;
 					found_req |= 0b10;
-					ctx->service_instance = inst;
 				}
 			}
 			if (found_req == 0b11) {
@@ -221,9 +248,9 @@ void *bdd_accept(struct bdd_instance *instance) {
 		goto err;
 	}
 
-	assert(ctx->service_instance != NULL);
-
 	struct bdd_service_instance *service_inst = ctx->service_instance;
+	assert(service_inst != NULL);
+
 	switch (bdd_conversation_init(
 		conversation,
 		&(client_ssl),
