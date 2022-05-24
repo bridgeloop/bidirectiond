@@ -299,7 +299,7 @@ bool bdd_io_create(
 		assert(false);
 		return false;
 	}
-	struct bdd_io *io = NULL;
+	struct bdd_io *io;
 	bdd_io_id idx = 0;
 	for (; idx < bdd_conversation_n_max_io(conversation); ++idx) {
 		io = &(conversation->io_array[idx]);
