@@ -390,14 +390,20 @@ int main(int argc, char *argv[], char *env[]) {
 	}
 	//#endif
 
-	if (input_addr.sun_path[0] != 0 && (input_fd = socket(AF_UNIX, SOCK_STREAM, 0)) >= 0) {
-		if (bind(input_fd, (struct sockaddr *)&(input_addr), sizeof(struct sockaddr_un)) != 0) {
-			fputs("failed to bind input socket\n", stderr);
-			close(input_fd);
-			input_fd = -1;
-		} else if (listen(input_fd, 0) != 0) {
-			close(input_fd);
-			input_fd = -1;
+	if (input_addr.sun_path[0] != 0) {
+		input_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+		if (input_fd >= 0) {
+			if (bind(input_fd, (struct sockaddr *)&(input_addr), sizeof(struct sockaddr_un)) != 0) {
+				fputs("failed to bind input socket\n", stderr);
+				close(input_fd);
+				input_fd = -1;
+			} else if (listen(input_fd, 0) != 0) {
+				fputs("failed to listen on input socket\n", stderr);
+				close(input_fd);
+				input_fd = -1;
+			}
+		} else {
+			fputs("failed to create input socket\n", stderr);
 		}
 	}
 
