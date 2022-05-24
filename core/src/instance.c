@@ -260,7 +260,7 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 	) {
 		instance->conversations[(*idx)].associated.data = NULL;
 		instance->conversations[(*idx)].associated.destructor = NULL;
-		instance->conversations[(*idx)].io = NULL;
+		instance->conversations[(*idx)].io_array = NULL;
 		instance->available_conversations.ids[(*idx)] = (*idx);
 	}
 	// to epoll

@@ -60,7 +60,7 @@ struct bdd_conversation {
 	const struct bdd_service *service;
 
 	// set by bdd_conversation_init, destroyed by bdd_conversation_deinit
-	struct bdd_io *io;
+	struct bdd_io *io_array;
 	// technically set by a service, destroyed by a service or bdd_conversation_deinit
 	struct bdd_associated associated;
 

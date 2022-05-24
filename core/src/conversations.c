@@ -23,7 +23,7 @@ short int bdd_revent(struct bdd_conversation *conversation, bdd_io_id io_id) {
 		assert(false);
 		return 0;
 	}
-	short int *revents = (short int *)&(conversation->io[bdd_conversation_n_max_io(conversation)]);
+	short int *revents = (short int *)&(conversation->io_array[bdd_conversation_n_max_io(conversation)]);
 	return revents[io_id];
 }
 bdd_io_id bdd_conversation_n_max_io(struct bdd_conversation *conversation) {
@@ -72,32 +72,33 @@ enum bdd_conversation_init_status bdd_conversation_init(
 
 	conversation->service = service;
 
-	conversation->io = malloc(
+	conversation->io_array = malloc(
 		(sizeof(struct bdd_io) * service->n_max_io) +
 		(sizeof(short int) * service->n_max_io)
 	);
 
-	if (conversation->io == NULL) {
+	struct bdd_io *io_array = conversation->io_array;
+	if (conversation->io_array == NULL) {
 		return bdd_conversation_init_failed;
 	}
 
-	conversation->io[0].epoll_events = EPOLLIN | EPOLLRDHUP;
-	conversation->io[0].state = BDD_IO_STATE_ESTABLISHED;
-	conversation->io[0].tcp = 1;
-	conversation->io[0].shut_wr = 0;
-	conversation->io[0].ssl = 1;
-	conversation->io[0].ssl_alpn = 0; // irrelevant value
-	conversation->io[0].ssl_shut = 0;
-	conversation->io[0].in_epoll = 0; // irrelevant value
-	conversation->io[0].no_epoll = 0;
-	conversation->io[0].hup = 0;
-	conversation->io[0].rdhup = 0;
+	io_array[0].epoll_events = EPOLLIN | EPOLLRDHUP;
+	io_array[0].state = BDD_IO_STATE_ESTABLISHED;
+	io_array[0].tcp = 1;
+	io_array[0].shut_wr = 0;
+	io_array[0].ssl = 1;
+	io_array[0].ssl_alpn = 0; // irrelevant value
+	io_array[0].ssl_shut = 0;
+	io_array[0].in_epoll = 0; // irrelevant value
+	io_array[0].no_epoll = 0;
+	io_array[0].hup = 0;
+	io_array[0].rdhup = 0;
 
 	(*client_ssl_ref) = NULL;
-	conversation->io[0].io.ssl = client_ssl;
+	io_array[0].io.ssl = client_ssl;
 
 	for (bdd_io_id idx = 1; idx < service->n_max_io; ++idx) {
-		conversation->io[idx].state = BDD_IO_STATE_UNUSED;
+		io_array[idx].state = BDD_IO_STATE_UNUSED;
 	}
 	if (
 		service->conversation_init != NULL &&
@@ -108,16 +109,16 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	return bdd_conversation_init_success;
 }
 void bdd_conversation_deinit(struct bdd_conversation *conversation) {
-	if (conversation->io != NULL) {
+	if (conversation->io_array != NULL) {
 		for (bdd_io_id io_id = 0; io_id < bdd_conversation_n_max_io(conversation); ++io_id) {
-			struct bdd_io *io = &(conversation->io[io_id]);
+			struct bdd_io *io = &(conversation->io_array[io_id]);
 			if (bdd_io_state(io) == BDD_IO_STATE_UNUSED) {
 				continue;
 			}
 			bdd_io_remove(conversation, io_id);
 		}
-		free(conversation->io);
-		conversation->io = NULL;
+		free(conversation->io_array);
+		conversation->io_array = NULL;
 	}
 	bdd_set_associated(conversation, NULL, NULL);
 	return;

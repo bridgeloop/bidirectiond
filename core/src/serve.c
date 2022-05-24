@@ -75,7 +75,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 		bool any_in_epoll = false;
 
 		for (bdd_io_id idx = 0; idx < bdd_conversation_n_max_io(conversation); ++idx) {
-			struct bdd_io *io = &(conversation->io[idx]);
+			struct bdd_io *io = &(conversation->io_array[idx]);
 			if (!bdd_io_has_epoll_state(io) || io->no_epoll) {
 				io->in_epoll = 0;
 				continue;
@@ -95,7 +95,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 			};
 			if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
 				for (bdd_io_id idx2 = 0; idx2 < idx; ++idx2) {
-					io = &(conversation->io[idx2]);
+					io = &(conversation->io_array[idx2]);
 					if (!io->in_epoll) {
 						continue;
 					}
@@ -174,10 +174,10 @@ void *bdd_serve(struct bdd_instance *instance) {
 		}
 		conversation->next = NULL;
 
-		assert(conversation->io != NULL);
+		assert(conversation->io_array != NULL);
 		bdd_io_id n_io = bdd_conversation_n_max_io(conversation);
-		struct bdd_io *io = conversation->io;
-		short int *revents_list = (void *)&(conversation->io[n_io]);
+		struct bdd_io *io_array = conversation->io_array;
+		short int *revents_list = (void *)&(io_array[n_io]);
 		struct bdd_poll_io poll_io = {
 			.events = POLLIN | POLLOUT | POLLRDHUP,
 		};
@@ -186,14 +186,14 @@ void *bdd_serve(struct bdd_instance *instance) {
 		bool any_with_events = false;
 		#endif
 		for (bdd_io_id io_id = 0; io_id < n_io; ++io_id) {
-			bool in_epoll = io[io_id].in_epoll;
-			io[io_id].in_epoll = 0;
-			if (!in_epoll) {
+			struct bdd_io *io = &(io_array[io_id]);
+			if (!io->in_epoll) {
 				no_events:;
 				revents_list[io_id] = 0;
 				continue;
 			}
-			int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, bdd_io_fd(&(io[io_id])), NULL);
+			io->in_epoll = 0;
+			int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, bdd_io_fd(io), NULL);
 			assert(r == 0);
 			poll_io.io_id = io_id;
 			r = bdd_poll(conversation, &(poll_io), 1, 0);
@@ -211,13 +211,13 @@ void *bdd_serve(struct bdd_instance *instance) {
 			}
 			revents_list[io_id] = revents;
 			if (revents & POLLRDHUP) {
-				io[io_id].rdhup = 1;
+				io->rdhup = 1;
 			}
 			if (revents & POLLHUP) {
-				io[io_id].hup = 1;
-				io[io_id].no_epoll = 1;
+				io->hup = 1;
+				io->no_epoll = 1;
 			} else if (revents & POLLERR) {
-				io[io_id].no_epoll = 1;
+				io->no_epoll = 1;
 			}
 			#ifndef NDEBUG
 			any_with_events = true;
