@@ -81,7 +81,7 @@ void general_service__handle_events(struct bdd_conversation *conversation, const
 }
 struct general_service__info {
 	struct addrinfo *addrinfo;
-	const char *tls_name;
+	const char *ssl_name;
 };
 bool general_service__conversation_init(
 	struct bdd_conversation *conversation,
@@ -98,8 +98,8 @@ bool general_service__conversation_init(
 			continue;
 		}
 
-		if (info->tls_name != NULL) {
-			bdd_io_prep_ssl(conversation, service, (void *)info->tls_name);
+		if (info->ssl_name != NULL) {
+			bdd_io_prep_ssl(conversation, service, (void *)info->ssl_name, NULL);
 		}
 		if (bdd_io_connect(conversation, service, addrinfo->ai_addr, addrinfo->ai_addrlen) == bdd_io_connect_established) {
 			goto created;
@@ -144,9 +144,9 @@ static bool handle_s(
 	}
 	info->addrinfo = NULL;
 	if (use_tls) {
-		info->tls_name = addr;
+		info->ssl_name = addr;
 	} else {
-		info->tls_name = NULL;
+		info->ssl_name = NULL;
 	}
 
 	struct addrinfo hints = {

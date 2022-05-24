@@ -40,7 +40,8 @@ bool bdd_io_create(
 bool bdd_io_prep_ssl(
 	struct bdd_conversation *conversation,
 	bdd_io_id io_id,
-	char *ssl_name
+	char *ssl_name,
+	char *alp
 );
 void bdd_set_associated(
 	struct bdd_conversation *conversation,

@@ -21,6 +21,7 @@ struct bdd_io {
 		tcp : 1,
 		shut_wr : 1,
 		ssl : 1,
+		ssl_alpn : 1,
 		ssl_shut : 2,
 
 		in_epoll : 1,

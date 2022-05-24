@@ -355,6 +355,7 @@ bool bdd_io_create(
 	io->tcp = (type & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)) == SOCK_STREAM ? 1 : 0;
 	io->shut_wr = 0;
 	io->ssl = 0;
+	io->ssl_alpn = 0;
 	io->ssl_shut = 0;
 	io->in_epoll = 0;
 	io->no_epoll = 0;
@@ -365,8 +366,7 @@ bool bdd_io_create(
 	return true;
 }
 
-// to-do: alpn
-bool bdd_io_prep_ssl(struct bdd_conversation *conversation, bdd_io_id io_id, char *ssl_name) {
+bool bdd_io_prep_ssl(struct bdd_conversation *conversation, bdd_io_id io_id, char *ssl_name, char *alp) {
 	SSL *ssl = NULL;
 	const char *err = NULL;
 	if (conversation == NULL || io_id < 0 || io_id >= bdd_conversation_n_max_io(conversation) || ssl_name == NULL) {
@@ -402,6 +402,23 @@ bool bdd_io_prep_ssl(struct bdd_conversation *conversation, bdd_io_id io_id, cha
 	// does strdup: https://github.com/openssl/openssl/blob/1c0eede9827b0962f1d752fa4ab5d436fa039da4/crypto/x509/x509_vpm.c#L59
 	if (!SSL_set1_host(ssl, ssl_name)) {
 		goto err;
+	}
+
+	if (alp != NULL) {
+		unsigned char *buf = alloca(255);
+		buf[0] = 0;
+		unsigned int buf_len = 1;
+		while (*alp) {
+			if (buf_len == 256) {
+				abort();
+			}
+			buf[0] += 1;
+			buf[buf_len++] = *(alp++);
+		}
+		if (SSL_set_alpn_protos(ssl, buf, buf_len) != 0) {
+			goto err;
+		}
+		io->ssl_alpn = 1;
 	}
 	SSL_set_verify(ssl, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
 
@@ -491,6 +508,16 @@ enum bdd_io_connect_status bdd_io_connect(struct bdd_conversation *conversation,
 			if (r == 0) {
 				bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
 				goto err;
+			}
+
+			const unsigned char *alpn;
+			unsigned int alpn_sz = 0;
+			if (io->ssl_alpn) {
+				SSL_get0_alpn_selected(io->io.ssl, &(alpn), &(alpn_sz));
+				if (alpn == NULL) {
+					bdd_io_set_state(io, BDD_IO_STATE_BROKEN);
+					goto err;
+				}
 			}
 
 			bdd_io_set_state(io, BDD_IO_STATE_ESTABLISHED);
@@ -724,8 +751,9 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	conversation->io[0].tcp = 1;
 	conversation->io[0].shut_wr = 0;
 	conversation->io[0].ssl = 1;
+	conversation->io[0].ssl_alpn = 0; // irrelevant value
 	conversation->io[0].ssl_shut = 0;
-	conversation->io[0].in_epoll = 0;
+	conversation->io[0].in_epoll = 0; // irrelevant value
 	conversation->io[0].no_epoll = 0;
 	conversation->io[0].hup = 0;
 	conversation->io[0].rdhup = 0;

@@ -70,10 +70,7 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_instance *instance) {
 		if (alpn_sz <= 3) {
 			goto alpn_err;
 		}
-		if (alpn[0] != 0) { /* to-do: that byte seems to always be a `0`? */
-			goto alpn_err;
-		}
-		if (alpn[1] != alpn_sz - 2) {
+		if ((size_t)ntohs(*(unsigned short int *)alpn) != alpn_sz - 2) {
 			goto alpn_err;
 		}
 		// skip the 0 byte, and also skip the size byte
