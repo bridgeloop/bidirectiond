@@ -39,33 +39,31 @@ struct bdd_settings settings = {
 };
 
 #define PASTE(x, y) x##y
-#define sto(w, t) \
-	void PASTE(sto, w)(t * dest, char *str) { \
-		signed long long int v; \
-		if (!bdd_strtosll(str, strlen(str), &(v))) { \
-			return; \
+#define sto(sign, w, t) \
+	bool PASTE(sto, w)(t * dest, char *str) { \
+		sign long long int v; \
+		if (strcmp(#sign, "signed") == 0) { \
+			if (!strtolls(str, strlen(str), &(v))) { \
+				return false; \
+			} \
+		} else { \
+			if (!strtollu(str, strlen(str), &(v))) { \
+				return false; \
+			} \
 		} \
 		if (v == (t)v) { \
 			*dest = (t)v; \
+			return true; \
 		} \
-		return; \
+		return false; \
 	}
-sto(i, int);
-sto(ui, unsigned int);
-sto(usi, unsigned short int);
-sto(uid, uid_t);
-sto(gid, gid_t);
-sto(sz, size_t);
-void storlim(rlim_t *dest, char *str) {
-	unsigned long long int v;
-	if (!bdd_strtoull(str, strlen(str), &(v))) {
-		return;
-	}
-	if (v == (rlim_t)v) {
-		(*dest) = (rlim_t)v;
-	}
-	return;
-}
+sto(signed, i, int);
+sto(unsigned, ui, unsigned int);
+sto(unsigned, usi, unsigned short int);
+sto(signed, uid, uid_t);
+sto(signed, gid, gid_t);
+sto(unsigned, sz, size_t);
+sto(unsigned, rlim, rlim_t);
 
 // main
 #ifndef HASHMAP_MAIN
@@ -130,45 +128,49 @@ int main(int argc, char *argv[], char *env[]) {
 	size_t big_alloc_sz = 0;
 
 	#define EXPECT_ARGS(n) \
-	for (size_t idx = 1; idx <= n; ++idx) { \
-		if (arg[idx] == NULL || (arg[idx][0] == '-' && (arg[idx][1] < '1' || arg[idx][1] > '9'))) { \
+		for (size_t idx = 1; idx <= n; ++idx) { \
+			if (arg[idx] == NULL || (arg[idx][0] == '-' && (arg[idx][1] < '1' || arg[idx][1] > '9'))) { \
+				goto arg_err; \
+			} \
+		}
+	#define EXPECT(n) \
+		if (!n) { \
 			goto arg_err; \
-		} \
-	}
+		}
 	arg_iter:;
 	while ((*arg) != NULL) {
 		if (strcmp((*arg), "--n-worker-threads") == 0 || strcmp((*arg), "-t") == 0) {
 			EXPECT_ARGS(1);
-			stousi(&(settings.n_worker_threads), arg[1]);
+			EXPECT(stousi(&(settings.n_worker_threads), arg[1]));
 			arg += 2;
 		} else if (strcmp((*arg), "--client-timeout") == 0) {
 			EXPECT_ARGS(1);
-			stoui(&(settings.client_timeout), arg[1]);
+			EXPECT(stoui(&(settings.client_timeout), arg[1]));
 			arg += 2;
 		} else if (strcmp((*arg), "-l") == 0) {
 			EXPECT_ARGS(2);
 			struct rlimit rlimit;
-			storlim(&(rlimit.rlim_cur), arg[1]);
-			storlim(&(rlimit.rlim_max), arg[2]);
+			EXPECT(storlim(&(rlimit.rlim_cur), arg[1]));
+			EXPECT(storlim(&(rlimit.rlim_max), arg[2]));
 			if (setrlimit(RLIMIT_NOFILE, &(rlimit)) != 0) {
 				fputs("setrlimit failed\n", stderr);
 			}
 			arg += 3;
 		} else if (strcmp((*arg), "--backlog") == 0) {
 			EXPECT_ARGS(1);
-			stoi(&(backlog), arg[1]);
+			EXPECT(stoi(&(backlog), arg[1]));
 			arg += 2;
 		} else if (strcmp((*arg), "--server-tcp-port") == 0 || strcmp((*arg), "-p") == 0) {
 			EXPECT_ARGS(1);
-			stousi(&(port), arg[1]);
+			EXPECT(stousi(&(port), arg[1]));
 			arg += 2;
 		}  else if (strcmp((*arg), "--epoll-timeout") == 0) {
 			EXPECT_ARGS(1);
-			stoi(&(settings.epoll_timeout), arg[1]);
+			EXPECT(stoi(&(settings.epoll_timeout), arg[1]));
 			arg += 2;
 		} else if (strcmp((*arg), "--max-conversations") == 0) {
 			EXPECT_ARGS(1);
-			stoi(&(settings.n_conversations), arg[1]);
+			EXPECT(stoi(&(settings.n_conversations), arg[1]));
 			arg += 2;
 		} else if (strcmp((*arg), "--disable-ipv6") == 0) {
 			disable_ipv6 = true;
@@ -245,15 +247,15 @@ int main(int argc, char *argv[], char *env[]) {
 			arg += 4;
 		} else if (getuid() == 0 && strcmp((*arg), "--uid") == 0) {
 			EXPECT_ARGS(1);
-			stouid(&(nuid), arg[1]);
+			EXPECT(stouid(&(nuid), arg[1]));
 			arg += 2;
 		} else if (getgid() == 0 && strcmp((*arg), "--gid") == 0) {
 			EXPECT_ARGS(1);
-			stogid(&(ngid), arg[1]);
+			EXPECT(stogid(&(ngid), arg[1]));
 			arg += 2;
 		} else if (strcmp((*arg), "--n-epoll-oevents") == 0) {
 			EXPECT_ARGS(1);
-			stoi(&(settings.n_epoll_oevents), arg[1]);
+			EXPECT(stoi(&(settings.n_epoll_oevents), arg[1]));
 			arg += 2;
 		} else if (strcmp((*arg), "--input") == 0) {
 			EXPECT_ARGS(1);
@@ -268,7 +270,7 @@ int main(int argc, char *argv[], char *env[]) {
 			arg += 2;
 		} else if (strcmp((*arg), "--big-alloc") == 0) {
 			EXPECT_ARGS(1);
-			stosz(&(big_alloc_sz), arg[1]);
+			EXPECT(stosz(&(big_alloc_sz), arg[1]));
 			arg += 2;
 		} else {
 			for (size_t idx = 0; idx < n_services; ++idx) {

@@ -2,7 +2,7 @@
 
 #include <limits.h>
 
-bool bdd_strtosll(char *str, size_t len, signed long long int *sll) {
+bool strtolls(char *str, size_t len, signed long long int *sll) {
 	if (len == 0) {
 		return false;
 	}
@@ -58,7 +58,7 @@ bool bdd_strtosll(char *str, size_t len, signed long long int *sll) {
 	(*sll) = r;
 	return true;
 }
-bool bdd_strtoull(char *str, size_t len, unsigned long long int *llu) {
+bool strtollu(char *str, size_t len, unsigned long long int *llu) {
 	if (len == 0) {
 		return false;
 	}
@@ -93,11 +93,4 @@ bool bdd_strtoull(char *str, size_t len, unsigned long long int *llu) {
 	}
 	*llu = r;
 	return true;
-}
-size_t bdd_strlene(char *str, char e) {
-	size_t len = 0;
-	while (str[len] != e) {
-		len += 1;
-	}
-	return len;
 }
