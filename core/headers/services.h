@@ -68,5 +68,6 @@ bool bdd_io_set_blocking(
 );
 uint32_t bdd_io_epoll_events(struct bdd_conversation *conversation, bdd_io_id io_id);
 bool bdd_io_blocking(struct bdd_conversation *conversation, bdd_io_id io_id);
+short int bdd_revent(struct bdd_conversation *conversation, bdd_io_id io_id);
 
 #endif

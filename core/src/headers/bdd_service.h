@@ -9,7 +9,7 @@
 struct bdd_conversation;
 struct bdd_name_descs;
 struct bdd_service {
-	void (*handle_events)(struct bdd_conversation *conversation, const short int *revents);
+	void (*handle_events)(struct bdd_conversation *conversation);
 
 	bool (*conversation_init)(
 		struct bdd_conversation *conversation,

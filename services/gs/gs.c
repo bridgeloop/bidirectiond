@@ -41,8 +41,9 @@ static bool serve(struct bdd_conversation *conversation, bdd_io_id from, bdd_io_
 	return true;
 }
 
-void general_service__handle_events(struct bdd_conversation *conversation, const short int *revents) {
+void general_service__handle_events(struct bdd_conversation *conversation) {
 	struct general_service__associated *associated = bdd_get_associated(conversation);
+	short int revents[] = { bdd_revent(conversation, associated->client), bdd_revent(conversation, associated->service), };
 	if ((revents[0] | revents[1]) & POLLERR) {
 		goto err;
 	}

@@ -17,6 +17,15 @@
 #include "headers/bdd_io_remove.h"
 #include "headers/workers.h"
 
+short int bdd_revent(struct bdd_conversation *conversation, bdd_io_id io_id) {
+	if (conversation == NULL || io_id < 0 || io_id >= bdd_conversation_n_max_io(conversation)) {
+		fputs("programming error: bdd_revent called with invalid arguments\n", stderr);
+		assert(false);
+		return 0;
+	}
+	short int *revents = (short int *)&(conversation->io[bdd_conversation_n_max_io(conversation)]);
+	return revents[io_id];
+}
 bdd_io_id bdd_conversation_n_max_io(struct bdd_conversation *conversation) {
 	return conversation->service->n_max_io;
 }

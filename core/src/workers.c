@@ -45,8 +45,7 @@ void *bdd_worker(struct bdd_worker *worker) {
 
 	assert(conversation->service->handle_events != NULL);
 	conversation->service->handle_events(
-		conversation,
-		(void *)&(conversation->io[bdd_conversation_n_max_io(conversation)])
+		conversation
 	);
 
 	bdd_conversation_link(instance, &(conversation));
