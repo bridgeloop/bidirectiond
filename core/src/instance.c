@@ -195,6 +195,8 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 	while (atomic_flag_test_and_set(&(BDD_GLOBAL_MUTEX)));
 	if (BDD_GLOBAL_RC == 0) {
 		BDD_GLOBAL_CL_SSL_CTX = SSL_CTX_new(TLS_client_method());
+		SSL_CTX_set_min_proto_version(BDD_GLOBAL_CL_SSL_CTX, TLS1_3_VERSION);
+		SSL_CTX_set_max_proto_version(BDD_GLOBAL_CL_SSL_CTX, TLS1_3_VERSION);
 	}
 	BDD_GLOBAL_RC += 1;
 	if (BDD_GLOBAL_CL_SSL_CTX == NULL || BDD_GLOBAL_RC <= 0) {

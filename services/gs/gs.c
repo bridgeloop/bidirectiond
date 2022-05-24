@@ -20,13 +20,13 @@ struct general_service__associated {
 };
 
 static bool serve(struct bdd_conversation *conversation, bdd_io_id from, bdd_io_id to) {
-	unsigned char buf[0x100];
+	unsigned char buf[0x200];
 	struct bdd_poll_io poll_io = {
 		.io_id = from,
 		.events = POLLIN,
 	};
 	do {
-		ssize_t n = bdd_read(conversation, from, buf, 50);
+		ssize_t n = bdd_read(conversation, from, buf, sizeof(buf));
 		if (n < 0) {
 			return false;
 		}
