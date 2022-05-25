@@ -218,7 +218,7 @@ int main(int argc, char *argv[], char *env[]) {
 			fclose(file);
 
 			if (pkey == NULL) {
-				fprintf(stderr, "invalid private key file (%s)\n", arg[1]);
+				fprintf(stderr, "invalid private key file (%s)\n", arg[2]);
 				goto arg_creds_err;
 			}
 			if (!cp_ctx.success) {
