@@ -1,11 +1,3 @@
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-
-#include <openssl/ssl.h>
-#include "../../core/src/headers/conversations.h"
-#include "../../core/src/headers/bdd_io.h"
-
 #include <bdd-core/services.h>
 #include <netdb.h>
 #include <string.h>
