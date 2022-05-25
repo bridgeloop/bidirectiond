@@ -232,9 +232,8 @@ void *bdd_accept(struct bdd_instance *instance) {
 	BDD_DEBUG_LOG("accepted tcp connection\n");
 
 	// to-do: non-blocking here
-	fcntl(cl_socket, F_SETFL, fcntl(cl_socket, F_GETFL, 0) & ~(O_NONBLOCK));
-	setsockopt(cl_socket, SOL_SOCKET, SO_SNDTIMEO, &(instance->client_timeout), sizeof(instance->client_timeout));
-	setsockopt(cl_socket, SOL_SOCKET, SO_RCVTIMEO, &(instance->client_timeout), sizeof(instance->client_timeout));
+	int flags = fcntl(cl_socket, F_GETFL, 0);
+	fcntl(cl_socket, F_SETFL, flags & ~(O_NONBLOCK));
 
 	if (!SSL_set_fd(client_ssl, cl_socket)) {
 		goto err;
@@ -244,6 +243,8 @@ void *bdd_accept(struct bdd_instance *instance) {
 		BDD_DEBUG_LOG("rejected tls setup\n");
 		goto err;
 	}
+
+	fcntl(cl_socket, F_SETFL, flags | O_NONBLOCK);
 
 	struct bdd_service_instance *service_inst = ctx->service_instance;
 	assert(service_inst != NULL);

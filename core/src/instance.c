@@ -133,9 +133,6 @@ struct bdd_instance *bdd_instance_alloc(void) {
 	instance->epoll_timeout = -1;
 	// name_descs
 	instance->name_descs = NULL;
-	// client timeout
-	instance->client_timeout.tv_sec = 0;
-	instance->client_timeout.tv_usec = 0;
 	// server socket
 	instance->sv_socket = -1;
 	// conversations
@@ -229,9 +226,6 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 	instance->epoll_timeout = settings.epoll_timeout;
 	// name_descs
 	instance->name_descs = settings.name_descs;
-	// client timeout
-	instance->client_timeout.tv_sec = (settings.client_timeout / 1000);
-	instance->client_timeout.tv_usec = (settings.client_timeout % 1000) * 1000;
 	// server socket
 	instance->sv_socket = settings.sv_socket;
 	// conversations

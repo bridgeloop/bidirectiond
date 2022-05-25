@@ -28,8 +28,6 @@ struct bdd_instance {
 
 	void *name_descs;
 
-	struct timeval client_timeout;
-
 	int sv_socket;
 	int serve_eventfd;
 

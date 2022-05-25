@@ -2,6 +2,10 @@
 #define _GNU_SOURCE
 #endif
 
+#include <openssl/ssl.h>
+#include "../../core/src/headers/conversations.h"
+#include "../../core/src/headers/bdd_io.h"
+
 #include <bdd-core/services.h>
 #include <netdb.h>
 #include <string.h>
@@ -19,59 +23,59 @@ struct general_service__associated {
 	bool sv_shutdown;
 };
 
-static bool serve(struct bdd_conversation *conversation, bdd_io_id from, bdd_io_id to) {
+static bool serve(struct bdd_conversation *conversation, bdd_io_id from, bdd_io_id to, bool *rdhup) {
 	unsigned char buf[0x200];
-	struct bdd_poll_io poll_io = {
-		.io_id = from,
-		.events = POLLIN,
-	};
-	do {
-		ssize_t n = bdd_read(conversation, from, buf, sizeof(buf));
-		if (n < 0) {
+	for (;;) {
+		ssize_t n = bdd_io_read(conversation, from, buf, sizeof(buf));
+		if (n == -2) {
+			rdhup[from] = true;
+			return true;
+		}
+		if (n == -1) {
 			return false;
 		}
 		if (n == 0) {
 			return true;
 		}
-		if (bdd_write(conversation, to, buf, n) != n) {
+		if (bdd_io_write(conversation, to, buf, n) != n) {
 			return false;
 		}
-		bdd_poll(conversation, &(poll_io), 1, 0);
-	} while (poll_io.revents & POLLIN);
-	return true;
+	}
 }
 
 void general_service__handle_events(struct bdd_conversation *conversation) {
 	struct general_service__associated *associated = bdd_get_associated(conversation);
 	short int revents[] = { bdd_revent(conversation, associated->client), bdd_revent(conversation, associated->service), };
-	if ((revents[0] | revents[1]) & POLLERR) {
+	bool rdhup[] = { false, false, };
+	if ((revents[0] | revents[1]) & BDDEV_ERR) {
 		goto err;
 	}
-	if (revents[0] & POLLIN) {
-		if (!serve(conversation, associated->client, associated->service)) {
+	enum serve_status s;
+	if (revents[0] & BDDEV_IN) {
+		if (!serve(conversation, associated->client, associated->service, (bool *)rdhup)) {
 			goto err;
 		}
 	}
-	if (revents[1] & POLLIN) {
-		if (!serve(conversation, associated->service, associated->client)) {
+	if (revents[1] & BDDEV_IN) {
+		if (!serve(conversation, associated->service, associated->client, (bool *)rdhup)) {
 			goto err;
 		}
 	}
-	if (revents[0] & POLLHUP) {
+	if (rdhup[0]) {
 		if (!associated->sv_shutdown) {
-			bdd_io_shutdown(conversation, associated->service);
+			associated->sv_shutdown = true;
+			if (bdd_io_shutdown(conversation, associated->service) == bdd_io_shutdown_err) {
+				goto err;
+			}
 		}
-	} else if (revents[0] & POLLRDHUP) {
-		associated->sv_shutdown = true;
-		bdd_io_shutdown(conversation, associated->service);
 	}
-	if (revents[1] & POLLHUP) {
+	if (rdhup[1]) {
 		if (!associated->cl_shutdown) {
-			bdd_io_shutdown(conversation, associated->client);
+			associated->cl_shutdown = true;
+			if (bdd_io_shutdown(conversation, associated->client) == bdd_io_shutdown_err) {
+				goto err;
+			}
 		}
-	} else if (revents[1] & POLLRDHUP) {
-		associated->cl_shutdown = true;
-		bdd_io_shutdown(conversation, associated->client);
 	}
 	return;
 
@@ -102,7 +106,8 @@ bool general_service__conversation_init(
 		if (info->ssl_name != NULL) {
 			bdd_io_prep_ssl(conversation, service, (void *)info->ssl_name, NULL);
 		}
-		if (bdd_io_connect(conversation, service, addrinfo->ai_addr, addrinfo->ai_addrlen) == bdd_io_connect_established) {
+		enum bdd_io_connect_status s = bdd_io_connect(conversation, service, addrinfo->ai_addr, addrinfo->ai_addrlen);
+		if (s != bdd_io_connect_err && s != bdd_io_connect_again) {
 			goto created;
 		}
 
@@ -152,7 +157,7 @@ static bool handle_s(
 
 	struct addrinfo hints = {
 		0,
-		.ai_family = AF_UNSPEC,
+		.ai_family = AF_INET,
 		.ai_socktype = SOCK_STREAM,
 	};
 	struct addrinfo *res = NULL;

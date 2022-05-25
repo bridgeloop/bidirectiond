@@ -4,13 +4,11 @@
 #include "bdd_io_id.h"
 struct bdd_conversation;
 
-enum bdd_io_shutdown_state {
+enum bdd_io_shutdown_status {
 	bdd_io_shutdown_err,
-	bdd_io_shutdown_again,
-	bdd_io_shutdown_wants_write,
-	bdd_io_shutdown_wants_read,
+	bdd_io_shutdown_inprogress,
 	bdd_io_shutdown_success,
 };
-enum bdd_io_shutdown_state bdd_io_shutdown(struct bdd_conversation *conversation, bdd_io_id io_id);
+__attribute__((warn_unused_result)) enum bdd_io_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, bdd_io_id io_id);
 
 #endif

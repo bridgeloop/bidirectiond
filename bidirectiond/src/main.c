@@ -32,7 +32,6 @@ struct bdd_settings settings = {
 	.n_conversations = 0x100,
 	.n_epoll_oevents = 0x200,
 	.n_worker_threads = 16,
-	.client_timeout = 8000,
 	.epoll_timeout = -1,
 	.sv_socket = -1,
 	.use_work_queues = false,
@@ -142,10 +141,6 @@ int main(int argc, char *argv[], char *env[]) {
 		if (strcmp((*arg), "--n-worker-threads") == 0 || strcmp((*arg), "-t") == 0) {
 			EXPECT_ARGS(1);
 			EXPECT(stousi(&(settings.n_worker_threads), arg[1]));
-			arg += 2;
-		} else if (strcmp((*arg), "--client-timeout") == 0) {
-			EXPECT_ARGS(1);
-			EXPECT(stoui(&(settings.client_timeout), arg[1]));
 			arg += 2;
 		} else if (strcmp((*arg), "-l") == 0) {
 			EXPECT_ARGS(2);

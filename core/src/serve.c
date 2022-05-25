@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <signal.h>
+#include <poll.h>
 #include <sys/epoll.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -17,9 +18,8 @@
 #include "headers/debug_log.h"
 #include "headers/conversations.h"
 #include "headers/unlikely.h"
+#include "headers/bdd_event.h"
 #include "headers/bdd_io.h"
-#include "headers/bdd_poll.h"
-#include "headers/bdd_io_connect.h"
 #include "headers/bdd_service.h"
 #include "headers/signal.h"
 
@@ -30,6 +30,41 @@ time_t bdd_time(void) {
 	ms += x.tv_sec * 1000;
 	ms += x.tv_usec / 1000;
 	return ms;
+}
+
+static void bdd_conversation_work(struct bdd_instance *instance, struct bdd_conversation **conversation_ref, unsigned short int *next_worker_id) {
+	struct bdd_conversation *conversation = *conversation_ref;
+	*conversation_ref = NULL;
+	struct bdd_worker *worker;
+	if (instance->available_workers.ids == NULL) {
+		worker = &(instance->workers[*next_worker_id]);
+		*next_worker_id = (*next_worker_id + 1) % instance->n_workers;
+	} else {
+		pthread_mutex_lock(&(instance->available_workers.mutex));
+		if (instance->available_workers.idx == instance->n_workers) {
+			BDD_DEBUG_LOG("no available worker threads; waiting...\n");
+			do {
+				pthread_cond_wait(
+					&(instance->available_workers.cond),
+					&(instance->available_workers.mutex)
+				);
+			} while (instance->available_workers.idx == instance->n_workers);
+		}
+		worker = &(instance->workers[instance->available_workers.ids[(instance->available_workers.idx)++]]);
+		pthread_mutex_unlock(&(instance->available_workers.mutex));
+	}
+
+	BDD_DEBUG_LOG("worker thread %i chosen!\n", (int)worker->id);
+
+	pthread_mutex_lock(&(worker->work_mutex));
+	if (worker->conversations == NULL) {
+		worker->conversations_appender = &(worker->conversations);
+	}
+	(*(worker->conversations_appender)) = conversation;
+	worker->conversations_appender = &(conversation->next);
+	pthread_cond_signal(&(worker->work_cond));
+	pthread_mutex_unlock(&(worker->work_mutex));
+	return;
 }
 
 void *bdd_serve(struct bdd_instance *instance) {
@@ -68,27 +103,70 @@ void *bdd_serve(struct bdd_instance *instance) {
 		struct bdd_conversation *conversation = *conversations_to_epoll;
 		(*conversations_to_epoll) = conversation->next;
 
-		conversation->skip = 0;
+		conversation->skip = false;
 
-		// add the IOs' fds to epoll
-		// discard the conversation if no IOs are eligible
 		bool any_in_epoll = false;
 
-		for (bdd_io_id idx = 0; idx < bdd_conversation_n_max_io(conversation); ++idx) {
+		bool any_connecting = conversation->n_connecting > 0;
+		bool any_broken = conversation->core_caused_broken_io;
+		conversation->core_caused_broken_io = false;
+
+		bdd_io_id n_io = bdd_conversation_n_max_io(conversation);
+		for (bdd_io_id idx = 0; idx < n_io; ++idx) {
 			struct bdd_io *io = &(conversation->io_array[idx]);
-			if (!bdd_io_has_epoll_state(io) || io->no_epoll) {
-				io->in_epoll = 0;
+
+			io->in_epoll = 0;
+			if (!bdd_io_internal_has_epoll_state(conversation, io)) {
 				continue;
 			}
 
-			int fd = bdd_io_fd(io);
+			int fd = bdd_io_internal_fd(io);
 
-			if (io->rdhup) {
-				io->epoll_events &= ~(EPOLLRDHUP | EPOLLIN);
+			uint32_t events = 0;
+
+			if (any_connecting) {
+				if (io->state == BDD_IO_STATE_SSL_CONNECTING && SSL_want_read(io->io.ssl)) {
+					events |= EPOLLIN;
+				}
+				if (io->state == BDD_IO_STATE_CONNECTING || io->state == BDD_IO_STATE_SSL_CONNECTING) {
+					events |= EPOLLOUT;
+				}
+			} else if (any_broken) {
+				unsigned char *revents_list = (void *)&(conversation->io_array[
+					n_io
+				]);
+				if (io->state == BDD_IO_STATE_ESTABLISHED_BROKEN) {
+					io->no_epoll = 1;
+					revents_list[idx] = BDDEV_ERR;
+					struct pollfd pollfd = {
+						.fd = fd,
+						.events = POLLIN,
+					};
+					poll(&(pollfd), 1, 0);
+					if (pollfd.revents & POLLIN) {
+						revents_list[idx] |= BDDEV_IN;
+					}
+				} else if (io->state == BDD_IO_STATE_BROKEN) {
+					io->no_epoll = 1;
+					revents_list[idx] = BDDEV_ERR;
+				} else {
+					revents_list[idx] = 0;
+				}
+				continue;
+			} else {
+				if (io->listen_read && !io->eof) {
+					events |= EPOLLIN;
+				}
+				if (io->listen_write && !io->shutdown_called) {
+					events |= EPOLLOUT;
+				}
+			}
+			if (io->shutdown_called && !io->shutdown_complete) {
+				events |= EPOLLOUT;
 			}
 
 			struct epoll_event event = {
-				.events = io->epoll_events,
+				.events = events,
 				.data = {
 					.ptr = conversation,
 				},
@@ -99,7 +177,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 					if (!io->in_epoll) {
 						continue;
 					}
-					fd = bdd_io_fd(io);
+					fd = bdd_io_internal_fd(io);
 
 					int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
 					assert(r == 0);
@@ -111,16 +189,17 @@ void *bdd_serve(struct bdd_instance *instance) {
 			io->in_epoll = 1;
 		}
 
+		if (!any_connecting && any_broken) {
+			bdd_conversation_work(instance, &(conversation), &(next_worker_id));
+			continue;
+		}
+
 		if (!any_in_epoll) {
 			goto discard_conversation;
 		}
 
 		conversation->next = NULL;
-		if (conversation->noatime) {
-			conversation->noatime = 0;
-		} else {
-			conversation->accessed_at = bdd_time();
-		}
+		conversation->accessed_at = bdd_time();
 		if (valid_conversations == NULL) {
 			assert(valid_conversations_tail == NULL);
 			conversation->prev = NULL;
@@ -150,11 +229,13 @@ void *bdd_serve(struct bdd_instance *instance) {
 		if (conversation == NULL) { // eventfd
 			continue;
 		}
-		uint8_t skip = conversation->skip;
-		conversation->skip = 1;
+		bool skip = conversation->skip;
+		conversation->skip = true;
 		if (skip) {
 			continue;
 		}
+
+		bool any_connecting = conversation->n_connecting > 0;
 
 		struct bdd_conversation *n;
 		if ((n = conversation->prev) != NULL) {
@@ -177,88 +258,116 @@ void *bdd_serve(struct bdd_instance *instance) {
 		assert(conversation->io_array != NULL);
 		bdd_io_id n_io = bdd_conversation_n_max_io(conversation);
 		struct bdd_io *io_array = conversation->io_array;
-		short int *revents_list = (void *)&(io_array[n_io]);
-		struct bdd_poll_io poll_io = {
+		unsigned char *revents_list = (void *)&(io_array[n_io]);
+		struct pollfd pollfd = {
 			.events = POLLIN | POLLOUT | POLLRDHUP,
 		};
 
-		#ifndef NDEBUG
 		bool any_with_events = false;
-		#endif
 		for (bdd_io_id io_id = 0; io_id < n_io; ++io_id) {
 			struct bdd_io *io = &(io_array[io_id]);
+			revents_list[io_id] = 0;
+
 			if (!io->in_epoll) {
-				no_events:;
-				revents_list[io_id] = 0;
 				continue;
 			}
-			io->in_epoll = 0;
-			int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, bdd_io_fd(io), NULL);
+
+			int r = epoll_ctl(
+				instance->epoll_fd,
+				EPOLL_CTL_DEL,
+				(pollfd.fd = bdd_io_internal_fd(io)),
+				NULL
+			);
 			assert(r == 0);
-			poll_io.io_id = io_id;
-			r = bdd_poll(conversation, &(poll_io), 1, 0);
+
+			r = poll(&(pollfd), 1, 0);
 			if (r < 0) {
 				conversation->next = conversations_to_discard;
 				conversations_to_discard = conversation;
 				goto events_iter;
 			}
-			short int revents = poll_io.revents;
-			if (io->rdhup) {
-				revents &= ~(POLLRDHUP | POLLIN);
+
+			short int revents = pollfd.revents;
+
+			if (io->shutdown_called && !io->shutdown_complete && (revents & POLLOUT)) {
+				switch (bdd_io_internal_shutdown_continue(io)) {
+					case (bdd_io_shutdown_err): {
+						bdd_io_internal_break_established(conversation, io, true);
+						break;
+					}
+					case (bdd_io_shutdown_success): {
+						if (!io->ssl) {
+							break;
+						}
+						if (SSL_get_shutdown(io->io.ssl) == (SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN)) {
+							io->no_epoll = 1;
+						}
+						break;
+					}
+				}
 			}
-			if (r == 0 || revents == 0) {
-				goto no_events;
+
+			if (any_connecting) {
+				if (
+					(
+						(io->state == BDD_IO_STATE_SSL_CONNECTING && SSL_want_read(io->io.ssl)) &&
+						(revents & POLLIN)
+					) ||
+					(
+						(
+							io->state == BDD_IO_STATE_CONNECTING ||
+							(io->state == BDD_IO_STATE_SSL_CONNECTING && SSL_want_write(io->io.ssl))
+						) &&
+						(revents & POLLOUT)
+					)
+				) {
+					if ((pollfd.revents & POLLERR) || bdd_io_internal_connect_continue(conversation, io) == bdd_io_connect_err) {
+						bdd_io_internal_break(conversation, io, true);
+					}
+				}
+				// to-do: does openssl return an error here for us?
+				if (io->state == BDD_IO_STATE_SSL_CONNECTING && (revents & (POLLRDHUP | POLLHUP))) {
+					bdd_io_internal_break(conversation, io, true);
+				}
 			}
-			revents_list[io_id] = revents;
-			if (revents & POLLRDHUP) {
-				io->rdhup = 1;
+
+			if (any_connecting) {
+				continue;
 			}
-			if (revents & POLLHUP) {
-				io->hup = 1;
+
+			unsigned char bdd_revents = 0;
+
+			if ((revents & POLLIN) && !io->eof) {
+				bdd_revents |= BDDEV_IN;
+			}
+
+			if (revents & POLLERR) {
+				bdd_revents |= BDDEV_ERR;
 				io->no_epoll = 1;
-			} else if (revents & POLLERR) {
+			} else if (revents & POLLHUP) {
 				io->no_epoll = 1;
 			}
-			#ifndef NDEBUG
+
+			if (!io->shutdown_called && (revents & POLLOUT)) {
+				bdd_revents |= BDDEV_OUT;
+			}
+
+			if (r == 0 || bdd_revents == 0) {
+				continue;
+			}
+
+			revents_list[io_id] = bdd_revents;
 			any_with_events = true;
-			#endif
 		}
-		#ifndef NDEBUG
-		assert(any_with_events);
-		#endif
+
+		if (any_connecting || !any_with_events) {
+			bdd_conversation_link(instance, &(conversation));
+			continue;
+		}
 
 		BDD_DEBUG_LOG("found working conversation struct\n");
 
-		struct bdd_worker *worker;
-		if (instance->available_workers.ids == NULL) {
-			worker = &(instance->workers[next_worker_id]);
-			next_worker_id = (next_worker_id + 1) % instance->n_workers;
-		} else {
-			pthread_mutex_lock(&(instance->available_workers.mutex));
-			if (instance->available_workers.idx == instance->n_workers) {
-				BDD_DEBUG_LOG("no available worker threads; waiting...\n");
-				do {
-					pthread_cond_wait(
-						&(instance->available_workers.cond),
-						&(instance->available_workers.mutex)
-					);
-				} while (instance->available_workers.idx == instance->n_workers);
-			}
-			worker = &(instance->workers[instance->available_workers.ids[(instance->available_workers.idx)++]]);
-			pthread_mutex_unlock(&(instance->available_workers.mutex));
-		}
-
-		BDD_DEBUG_LOG("worker thread %i chosen!\n", (int)worker->id);
-
-		pthread_mutex_lock(&(worker->work_mutex));
-		if (worker->conversations == NULL) {
-			worker->conversations_appender = &(worker->conversations);
-		}
-		(*(worker->conversations_appender)) = conversation;
-		worker->conversations_appender = &(conversation->next);
-		pthread_cond_signal(&(worker->work_cond));
-		pthread_mutex_unlock(&(worker->work_mutex));
-
+		bdd_conversation_work(instance, &(conversation), &(next_worker_id));
 		events_iter:;
 	}
 

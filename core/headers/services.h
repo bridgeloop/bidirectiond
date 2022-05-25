@@ -6,24 +6,24 @@
 #include <sys/socket.h>
 #include <sys/epoll.h>
 
+#include "../src/headers/bdd_event.h"
 #include "../src/headers/bdd_io_id.h"
 #include "../src/headers/bdd_service.h"
 #include "../src/headers/bdd_io_remove.h"
 #include "../src/headers/bdd_name_descs.h"
 #include "../src/headers/bdd_io_connect.h"
 #include "../src/headers/bdd_conversation_n_max_io.h"
-#include "../src/headers/bdd_poll.h"
 #include "../src/headers/bdd_io_shutdown.h"
 
 struct bdd_conversation;
 
-__attribute__((warn_unused_result)) ssize_t bdd_read(
+__attribute__((warn_unused_result)) ssize_t bdd_io_read(
 	struct bdd_conversation *conversation,
 	bdd_io_id io_id,
 	void *buf,
 	ssize_t sz
 );
-__attribute__((warn_unused_result)) ssize_t bdd_write(
+__attribute__((warn_unused_result)) ssize_t bdd_io_write(
 	struct bdd_conversation *conversation,
 	bdd_io_id io_id,
 	void *buf,
@@ -56,18 +56,20 @@ bool bdd_name_descs_add_service_instance(
 	const struct bdd_service *service,
 	const void **instance_info
 );
-bool bdd_io_set_epoll_events(
+
+void bdd_io_set_listen_read(
 	struct bdd_conversation *conversation,
 	bdd_io_id io_id,
-	uint32_t epoll_events
+	bool listen
 );
-bool bdd_io_set_blocking(
+void bdd_io_set_listen_write(
 	struct bdd_conversation *conversation,
 	bdd_io_id io_id,
-	bool block
+	bool listen
 );
-uint32_t bdd_io_epoll_events(struct bdd_conversation *conversation, bdd_io_id io_id);
-bool bdd_io_blocking(struct bdd_conversation *conversation, bdd_io_id io_id);
-short int bdd_revent(struct bdd_conversation *conversation, bdd_io_id io_id);
+bool bdd_io_listen_read(struct bdd_conversation *conversation, bdd_io_id io_id);
+bool bdd_io_listen_write(struct bdd_conversation *conversation, bdd_io_id io_id);
+
+unsigned char bdd_revent(struct bdd_conversation *conversation, bdd_io_id io_id);
 
 #endif

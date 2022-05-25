@@ -9,7 +9,6 @@ struct bdd_settings {
 
 	struct bdd_name_descs *name_descs;
 
-	uint32_t client_timeout;
 	int epoll_timeout;
 
 	bool use_work_queues;

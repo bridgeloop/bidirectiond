@@ -8,6 +8,8 @@
 #include <sys/socket.h>
 
 #include "bdd_io_id.h"
+#include "bdd_io_connect.h"
+#include "bdd_io_shutdown.h"
 #include "bdd_conversation_n_max_io.h"
 
 struct bdd_instance;
@@ -64,9 +66,9 @@ struct bdd_conversation {
 	// technically set by a service, destroyed by a service or bdd_conversation_deinit
 	struct bdd_associated associated;
 
-	uint8_t
-		skip : 4, // moved out of the valid_conversations linked list - set by bdd_serve
-		noatime : 4; // do not update accessed_at - set by bdd_conversation_init and bdd_serve
+	bool skip; // moved out of the valid_conversations linked list - set by bdd_serve
+	bool core_caused_broken_io;
+	bdd_io_id n_connecting; // amount of connecting IOs - set by bdd_io_connect, and bdd_serve
 };
 
 enum bdd_conversation_init_status {
@@ -87,12 +89,12 @@ void bdd_conversation_release(struct bdd_instance *instance, struct bdd_conversa
 void bdd_conversation_deinit(struct bdd_conversation *conversation);
 void bdd_conversation_link(struct bdd_instance *instance, struct bdd_conversation **conversation);
 
-uint8_t bdd_io_state(struct bdd_io *io);
-uint8_t bdd_io_substate(struct bdd_io *io);
-void bdd_io_set_state(struct bdd_io *io, uint8_t state);
-void bdd_io_set_state_substate(struct bdd_io *io, uint8_t state, uint8_t substate);
-int bdd_io_fd(struct bdd_io *io);
-bool bdd_io_has_epoll_state(struct bdd_io *io);
-uint8_t bdd_io_wait_state(struct bdd_io *io);
+void bdd_io_internal_set_state(struct bdd_conversation *conversation, struct bdd_io *io, uint8_t state);
+int bdd_io_internal_fd(struct bdd_io *io);
+bool bdd_io_internal_has_epoll_state(struct bdd_conversation *conversation, struct bdd_io *io);
+void bdd_io_internal_break(struct bdd_conversation *conversation, struct bdd_io *io, bool from_core);
+void bdd_io_internal_break_established(struct bdd_conversation *conversation, struct bdd_io *io, bool from_core);
+enum bdd_io_connect_status bdd_io_internal_connect_continue(struct bdd_conversation *conversation, struct bdd_io *io);
+enum bdd_io_shutdown_status bdd_io_internal_shutdown_continue(struct bdd_io *io);
 
 #endif

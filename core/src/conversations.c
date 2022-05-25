@@ -17,13 +17,13 @@
 #include "headers/bdd_io_remove.h"
 #include "headers/workers.h"
 
-short int bdd_revent(struct bdd_conversation *conversation, bdd_io_id io_id) {
+unsigned char bdd_revent(struct bdd_conversation *conversation, bdd_io_id io_id) {
 	if (conversation == NULL || io_id < 0 || io_id >= bdd_conversation_n_max_io(conversation)) {
 		fputs("programming error: bdd_revent called with invalid arguments\n", stderr);
 		assert(false);
 		return 0;
 	}
-	short int *revents = (short int *)&(conversation->io_array[bdd_conversation_n_max_io(conversation)]);
+	unsigned char *revents = (unsigned char *)&(conversation->io_array[bdd_conversation_n_max_io(conversation)]);
 	return revents[io_id];
 }
 bdd_io_id bdd_conversation_n_max_io(struct bdd_conversation *conversation) {
@@ -68,13 +68,12 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	assert(service->n_max_io > 0);
 	SSL *client_ssl = (*client_ssl_ref);
 
-	conversation->noatime = 0;
-
 	conversation->service = service;
+	conversation->n_connecting = 0;
 
 	conversation->io_array = malloc(
 		(sizeof(struct bdd_io) * service->n_max_io) +
-		(sizeof(short int) * service->n_max_io)
+		(sizeof(unsigned char) * service->n_max_io)
 	);
 
 	struct bdd_io *io_array = conversation->io_array;
@@ -82,17 +81,22 @@ enum bdd_conversation_init_status bdd_conversation_init(
 		return bdd_conversation_init_failed;
 	}
 
-	io_array[0].epoll_events = EPOLLIN | EPOLLRDHUP;
 	io_array[0].state = BDD_IO_STATE_ESTABLISHED;
+	io_array[0].shutdown_called = 0;
+
 	io_array[0].tcp = 1;
-	io_array[0].shut_wr = 0;
+	io_array[0].shutdown_complete = 0;
 	io_array[0].ssl = 1;
 	io_array[0].ssl_alpn = 0; // irrelevant value
-	io_array[0].ssl_shut = 0;
+	io_array[0].ssl_shutdown_fully = 0;
+
 	io_array[0].in_epoll = 0; // irrelevant value
+
+	io_array[0].eof = 0;
 	io_array[0].no_epoll = 0;
-	io_array[0].hup = 0;
-	io_array[0].rdhup = 0;
+
+	io_array[0].listen_read = 1;
+	io_array[0].listen_write = 0;
 
 	(*client_ssl_ref) = NULL;
 	io_array[0].io.ssl = client_ssl;
@@ -112,7 +116,7 @@ void bdd_conversation_deinit(struct bdd_conversation *conversation) {
 	if (conversation->io_array != NULL) {
 		for (bdd_io_id io_id = 0; io_id < bdd_conversation_n_max_io(conversation); ++io_id) {
 			struct bdd_io *io = &(conversation->io_array[io_id]);
-			if (bdd_io_state(io) == BDD_IO_STATE_UNUSED) {
+			if (io->state == BDD_IO_STATE_UNUSED) {
 				continue;
 			}
 			bdd_io_remove(conversation, io_id);
