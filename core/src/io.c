@@ -362,7 +362,9 @@ bool bdd_io_prep_ssl(struct bdd_conversation *conversation, bdd_io_id io_id, cha
 		}
 		io->ssl_alpn = 1;
 	}
+	#ifndef BIDIRECTIOND_UNSAFE_TLS
 	SSL_set_verify(ssl, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+	#endif
 
 	io->ssl = 1;
 	io->io.ssl = ssl;
@@ -513,6 +515,9 @@ __attribute__((warn_unused_result)) enum bdd_io_shutdown_status bdd_io_shutdown(
 	enum bdd_io_shutdown_status s = bdd_io_internal_shutdown_continue(io);
 	if (s == bdd_io_shutdown_err) {
 		bdd_io_internal_break_established(conversation, io, false);
+	}
+	if (io->ssl && SSL_get_shutdown(io->io.ssl) == (SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN)) {
+		io->no_epoll = 1;
 	}
 	return s;
 
