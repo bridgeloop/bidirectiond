@@ -89,7 +89,7 @@ bool bdd_io_internal_has_epoll_state(struct bdd_conversation *conversation, stru
 	return (
 		io->state == BDD_IO_STATE_CONNECTING ||
 		io->state == BDD_IO_STATE_SSL_CONNECTING ||
-		(io->shutdown_called && !io->shutdown_complete)
+		(io->ssl && io->shutdown_called && !(SSL_get_shutdown(io->io.ssl) & SSL_SENT_SHUTDOWN))
 	);
 }
 void bdd_io_internal_break(struct bdd_conversation *conversation, struct bdd_io *io, bool from_core) {
@@ -151,6 +151,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 			} else if (err == SSL_ERROR_WANT_WRITE) {
 				abort(); // fuck re-negotiation
 			} else if (err == SSL_ERROR_ZERO_RETURN /* received close_notify */) {
+				io->eof = 1;
 				if (SSL_get_shutdown(io->io.ssl) == (SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN)) {
 					io->no_epoll = 1;
 				}
@@ -289,7 +290,6 @@ bool bdd_io_create(
 	io->shutdown_called = 0;
 
 	io->tcp = (type & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)) == SOCK_STREAM ? 1 : 0;
-	io->shutdown_complete = 0;
 	io->ssl = 0;
 	io->ssl_alpn = 0;
 	io->ssl_shutdown_fully = 0;
@@ -490,7 +490,6 @@ enum bdd_io_shutdown_status bdd_io_internal_shutdown_continue(struct bdd_io *io)
 	} else if (shutdown(fd, SHUT_WR) != 0) {
 		return bdd_io_shutdown_err;
 	}
-	io->shutdown_complete = 1;
 	return bdd_io_shutdown_success;
 }
 
@@ -541,7 +540,6 @@ void bdd_io_remove(struct bdd_conversation *conversation, bdd_io_id io_id) {
 	if (io->ssl) {
 		if (
 			io->state == BDD_IO_STATE_ESTABLISHED &&
-			io->shutdown_complete &&
 			!io->ssl_shutdown_fully &&
 			SSL_get_shutdown(io->io.ssl) == (SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN)
 		) {

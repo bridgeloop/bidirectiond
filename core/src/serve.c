@@ -161,7 +161,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 					events |= EPOLLOUT;
 				}
 			}
-			if (io->shutdown_called && !io->shutdown_complete) {
+			if (io->ssl && io->shutdown_called && !(SSL_get_shutdown(io->io.ssl) & SSL_SENT_SHUTDOWN)) {
 				events |= EPOLLOUT;
 			}
 
@@ -289,7 +289,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 
 			short int revents = pollfd.revents;
 
-			if (io->shutdown_called && !io->shutdown_complete && (revents & POLLOUT)) {
+			if (io->ssl && io->shutdown_called && !(SSL_get_shutdown(io->io.ssl) & SSL_SENT_SHUTDOWN) && (revents & POLLOUT)) {
 				switch (bdd_io_internal_shutdown_continue(io)) {
 					case (bdd_io_shutdown_err): {
 						bdd_io_internal_break_established(conversation, io, true);

@@ -85,7 +85,6 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	io_array[0].shutdown_called = 0;
 
 	io_array[0].tcp = 1;
-	io_array[0].shutdown_complete = 0;
 	io_array[0].ssl = 1;
 	io_array[0].ssl_alpn = 0; // irrelevant value
 	io_array[0].ssl_shutdown_fully = 0;

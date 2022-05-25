@@ -19,8 +19,6 @@
 struct general_service__associated {
 	bdd_io_id client;
 	bdd_io_id service;
-	bool cl_shutdown;
-	bool sv_shutdown;
 };
 
 static bool serve(struct bdd_conversation *conversation, bdd_io_id from, bdd_io_id to, bool *rdhup) {
@@ -50,7 +48,6 @@ void general_service__handle_events(struct bdd_conversation *conversation) {
 	if ((revents[0] | revents[1]) & BDDEV_ERR) {
 		goto err;
 	}
-	enum serve_status s;
 	if (revents[0] & BDDEV_IN) {
 		if (!serve(conversation, associated->client, associated->service, (bool *)rdhup)) {
 			goto err;
@@ -62,19 +59,13 @@ void general_service__handle_events(struct bdd_conversation *conversation) {
 		}
 	}
 	if (rdhup[0]) {
-		if (!associated->sv_shutdown) {
-			associated->sv_shutdown = true;
-			if (bdd_io_shutdown(conversation, associated->service) == bdd_io_shutdown_err) {
-				goto err;
-			}
+		if (bdd_io_shutdown(conversation, associated->service) == bdd_io_shutdown_err) {
+			goto err;
 		}
 	}
 	if (rdhup[1]) {
-		if (!associated->cl_shutdown) {
-			associated->cl_shutdown = true;
-			if (bdd_io_shutdown(conversation, associated->client) == bdd_io_shutdown_err) {
-				goto err;
-			}
+		if (bdd_io_shutdown(conversation, associated->client) == bdd_io_shutdown_err) {
+			goto err;
 		}
 	}
 	return;

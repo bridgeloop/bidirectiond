@@ -19,7 +19,6 @@ struct bdd_io {
 		shutdown_called : 1,
 
 		tcp : 1,
-		shutdown_complete : 1,
 		ssl : 1,
 		ssl_alpn : 1,
 		ssl_shutdown_fully : 1,
