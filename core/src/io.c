@@ -79,6 +79,9 @@ bool bdd_io_internal_has_epoll_state(struct bdd_conversation *conversation, stru
 	if (io->no_epoll) {
 		return false;
 	}
+	if (io->ssl && SSL_get_shutdown(io->io.ssl) == (SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN)) {
+		return false;
+	}
 	if (conversation->n_connecting == 0) {
 		return (
 			io->state == BDD_IO_STATE_ESTABLISHED ||
@@ -152,9 +155,6 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 				abort(); // fuck re-negotiation
 			} else if (err == SSL_ERROR_ZERO_RETURN /* received close_notify */) {
 				io->eof = 1;
-				if (SSL_get_shutdown(io->io.ssl) == (SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN)) {
-					io->no_epoll = 1;
-				}
 				return -2;
 			} else if (
 				(
@@ -515,9 +515,6 @@ __attribute__((warn_unused_result)) enum bdd_io_shutdown_status bdd_io_shutdown(
 	enum bdd_io_shutdown_status s = bdd_io_internal_shutdown_continue(io);
 	if (s == bdd_io_shutdown_err) {
 		bdd_io_internal_break_established(conversation, io, false);
-	}
-	if (io->ssl && SSL_get_shutdown(io->io.ssl) == (SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN)) {
-		io->no_epoll = 1;
 	}
 	return s;
 
