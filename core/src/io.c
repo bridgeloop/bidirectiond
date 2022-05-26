@@ -113,7 +113,7 @@ void bdd_io_internal_break_established(struct bdd_conversation *conversation, st
 	return;
 }
 
-// returns the number of bytes read, returns 0 on rdhup, returns -1 on err
+// returns the number of bytes read, returns -2 on rdhup, returns -1 on err
 __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 	struct bdd_conversation *conversation,
 	bdd_io_id io_id,
