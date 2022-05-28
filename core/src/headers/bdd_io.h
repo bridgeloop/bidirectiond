@@ -19,6 +19,7 @@ struct bdd_io {
 		shutdown_called : 1,
 
 		tcp : 1,
+		tcp_hup : 1,
 		ssl : 1,
 		ssl_alpn : 1,
 		ssl_shutdown_fully : 1,
@@ -26,7 +27,6 @@ struct bdd_io {
 		in_epoll : 1,
 
 		eof : 1,
-		no_epoll : 1, // no futher events
 
 		listen_read : 1, // EPOLLIN|EPOLLRDHUP
 		listen_write : 1; // EPOLLOUT

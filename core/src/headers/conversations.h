@@ -67,7 +67,6 @@ struct bdd_conversation {
 	struct bdd_associated associated;
 
 	bool skip; // moved out of the valid_conversations linked list - set by bdd_serve
-	bool core_caused_broken_io;
 	bdd_io_id n_connecting; // amount of connecting IOs - set by bdd_io_connect, and bdd_serve
 };
 
@@ -92,8 +91,8 @@ void bdd_conversation_link(struct bdd_instance *instance, struct bdd_conversatio
 void bdd_io_internal_set_state(struct bdd_conversation *conversation, struct bdd_io *io, uint8_t state);
 int bdd_io_internal_fd(struct bdd_io *io);
 bool bdd_io_internal_has_epoll_state(struct bdd_conversation *conversation, struct bdd_io *io);
-void bdd_io_internal_break(struct bdd_conversation *conversation, struct bdd_io *io, bool from_core);
-void bdd_io_internal_break_established(struct bdd_conversation *conversation, struct bdd_io *io, bool from_core);
+void bdd_io_internal_break(struct bdd_conversation *conversation, struct bdd_io *io);
+void bdd_io_internal_break_established(struct bdd_conversation *conversation, struct bdd_io *io);
 enum bdd_io_connect_status bdd_io_internal_connect_continue(struct bdd_conversation *conversation, struct bdd_io *io);
 enum bdd_io_shutdown_status bdd_io_internal_shutdown_continue(struct bdd_io *io);
 

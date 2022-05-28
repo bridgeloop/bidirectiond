@@ -85,6 +85,7 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	io_array[0].shutdown_called = 0;
 
 	io_array[0].tcp = 1;
+	io_array[0].tcp_hup = 0;
 	io_array[0].ssl = 1;
 	io_array[0].ssl_alpn = 0; // irrelevant value
 	io_array[0].ssl_shutdown_fully = 0;
@@ -92,7 +93,6 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	io_array[0].in_epoll = 0; // irrelevant value
 
 	io_array[0].eof = 0;
-	io_array[0].no_epoll = 0;
 
 	io_array[0].listen_read = 1;
 	io_array[0].listen_write = 0;

@@ -76,7 +76,7 @@ int bdd_io_internal_fd(struct bdd_io *io) {
 	}
 }
 bool bdd_io_internal_has_epoll_state(struct bdd_conversation *conversation, struct bdd_io *io) {
-	if (io->no_epoll) {
+	if (io->tcp_hup) {
 		return false;
 	}
 	if (io->ssl && SSL_get_shutdown(io->io.ssl) == (SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN)) {
@@ -92,27 +92,17 @@ bool bdd_io_internal_has_epoll_state(struct bdd_conversation *conversation, stru
 	return (
 		io->state == BDD_IO_STATE_CONNECTING ||
 		io->state == BDD_IO_STATE_SSL_CONNECTING ||
-		(io->ssl && io->shutdown_called && !(SSL_get_shutdown(io->io.ssl) & SSL_SENT_SHUTDOWN))
+		(io->state == BDD_IO_STATE_ESTABLISHED && io->ssl && io->shutdown_called && !(SSL_get_shutdown(io->io.ssl) & SSL_SENT_SHUTDOWN))
 	);
 }
-void bdd_io_internal_break(struct bdd_conversation *conversation, struct bdd_io *io, bool from_core) {
+void bdd_io_internal_break(struct bdd_conversation *conversation, struct bdd_io *io) {
 	bdd_io_internal_set_state(conversation, io, BDD_IO_STATE_BROKEN);
-	if (!from_core) {
-		io->no_epoll = 1;
-	} else {
-		conversation->core_caused_broken_io = true;
-	}
 	return;
 }
-void bdd_io_internal_break_established(struct bdd_conversation *conversation, struct bdd_io *io, bool from_core) {
+void bdd_io_internal_break_established(struct bdd_conversation *conversation, struct bdd_io *io) {
 	assert(io->state == BDD_IO_STATE_ESTABLISHED);
 	bdd_io_internal_set_state(conversation, io, BDD_IO_STATE_ESTABLISHED_BROKEN);
 	shutdown(bdd_io_internal_fd(io), SHUT_RD);
-	if (!from_core) {
-		io->no_epoll = 1;
-	} else {
-		conversation->core_caused_broken_io = true;
-	}
 	return;
 }
 
@@ -164,7 +154,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 			) {
 				return 0;
 			}
-			bdd_io_internal_break(conversation, io, false);
+			bdd_io_internal_break(conversation, io);
 			return -1;
 		}
 	} else {
@@ -176,7 +166,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				return 0;
 			}
-			bdd_io_internal_break(conversation, io, false);
+			bdd_io_internal_break(conversation, io);
 			return -1;
 		}
 		if (r == 0) {
@@ -235,7 +225,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 			) {
 				return 0;
 			}
-			bdd_io_internal_break_established(conversation, io, false);
+			bdd_io_internal_break_established(conversation, io);
 			return -1;
 		}
 	} else {
@@ -247,7 +237,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				return 0;
 			}
-			bdd_io_internal_break_established(conversation, io, false);
+			bdd_io_internal_break_established(conversation, io);
 			return -1;
 		}
 	}
@@ -290,6 +280,7 @@ bool bdd_io_create(
 	io->shutdown_called = 0;
 
 	io->tcp = (type & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)) == SOCK_STREAM ? 1 : 0;
+	io->tcp_hup = 0;
 	io->ssl = 0;
 	io->ssl_alpn = 0;
 	io->ssl_shutdown_fully = 0;
@@ -297,7 +288,6 @@ bool bdd_io_create(
 	io->in_epoll = 0;
 
 	io->eof = 0;
-	io->no_epoll = 0;
 
 	io->listen_read = 1;
 	io->listen_write = 0;
@@ -443,14 +433,14 @@ __attribute__((warn_unused_result)) enum bdd_io_connect_status bdd_io_connect(st
 					return bdd_io_connect_inprogress;
 				} else if (errno != EINTR) {
 					// failed to connect
-					bdd_io_internal_break(conversation, io, false);
+					bdd_io_internal_break(conversation, io);
 					goto err;
 				}
 			}
 			bdd_io_internal_set_state(conversation, io, BDD_IO_STATE_SSL_CONNECTING);
 			enum bdd_io_connect_status s = bdd_io_internal_connect_continue(conversation, io);
 			if (s == bdd_io_connect_err) {
-				bdd_io_internal_break(conversation, io, false);
+				bdd_io_internal_break(conversation, io);
 				goto err;
 			}
 			return s;
@@ -514,7 +504,7 @@ __attribute__((warn_unused_result)) enum bdd_io_shutdown_status bdd_io_shutdown(
 
 	enum bdd_io_shutdown_status s = bdd_io_internal_shutdown_continue(io);
 	if (s == bdd_io_shutdown_err) {
-		bdd_io_internal_break_established(conversation, io, false);
+		bdd_io_internal_break_established(conversation, io);
 	}
 	return s;
 

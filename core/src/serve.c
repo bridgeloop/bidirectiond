@@ -108,8 +108,6 @@ void *bdd_serve(struct bdd_instance *instance) {
 		bool any_in_epoll = false;
 
 		bool any_connecting = conversation->n_connecting > 0;
-		bool any_broken = conversation->core_caused_broken_io;
-		conversation->core_caused_broken_io = false;
 
 		bdd_io_id n_io = bdd_conversation_n_max_io(conversation);
 		for (bdd_io_id idx = 0; idx < n_io; ++idx) {
@@ -131,28 +129,6 @@ void *bdd_serve(struct bdd_instance *instance) {
 				if (io->state == BDD_IO_STATE_CONNECTING || io->state == BDD_IO_STATE_SSL_CONNECTING) {
 					events |= EPOLLOUT;
 				}
-			} else if (any_broken) {
-				unsigned char *revents_list = (void *)&(conversation->io_array[
-					n_io
-				]);
-				if (io->state == BDD_IO_STATE_ESTABLISHED_BROKEN) {
-					io->no_epoll = 1;
-					revents_list[idx] = BDDEV_ERR;
-					struct pollfd pollfd = {
-						.fd = fd,
-						.events = POLLIN,
-					};
-					poll(&(pollfd), 1, 0);
-					if (pollfd.revents & POLLIN) {
-						revents_list[idx] |= BDDEV_IN;
-					}
-				} else if (io->state == BDD_IO_STATE_BROKEN) {
-					io->no_epoll = 1;
-					revents_list[idx] = BDDEV_ERR;
-				} else {
-					revents_list[idx] = 0;
-				}
-				continue;
 			} else {
 				if (io->listen_read && !io->eof) {
 					events |= EPOLLIN;
@@ -187,11 +163,6 @@ void *bdd_serve(struct bdd_instance *instance) {
 
 			any_in_epoll = true;
 			io->in_epoll = 1;
-		}
-
-		if (!any_connecting && any_broken) {
-			bdd_conversation_work(instance, &(conversation), &(next_worker_id));
-			continue;
 		}
 
 		if (!any_in_epoll) {
@@ -289,9 +260,15 @@ void *bdd_serve(struct bdd_instance *instance) {
 
 			short int revents = pollfd.revents;
 
-			if (io->ssl && io->shutdown_called && !(SSL_get_shutdown(io->io.ssl) & SSL_SENT_SHUTDOWN) && (revents & POLLOUT)) {
+			if (
+				io->state == BDD_IO_STATE_ESTABLISHED &&
+				io->ssl &&
+				io->shutdown_called &&
+				!(SSL_get_shutdown(io->io.ssl) & SSL_SENT_SHUTDOWN) &&
+				(revents & POLLOUT)
+			) {
 				if (bdd_io_internal_shutdown_continue(io) == bdd_io_shutdown_err) {
-					bdd_io_internal_break_established(conversation, io, true);
+					bdd_io_internal_break_established(conversation, io);
 				}
 			}
 
@@ -310,37 +287,45 @@ void *bdd_serve(struct bdd_instance *instance) {
 					)
 				) {
 					if ((pollfd.revents & POLLERR) || bdd_io_internal_connect_continue(conversation, io) == bdd_io_connect_err) {
-						bdd_io_internal_break(conversation, io, true);
+						bdd_io_internal_break(conversation, io);
 					}
 				}
 				// to-do: does openssl return an error here for us?
 				if (io->state == BDD_IO_STATE_SSL_CONNECTING && (revents & (POLLRDHUP | POLLHUP))) {
-					bdd_io_internal_break(conversation, io, true);
+					bdd_io_internal_break(conversation, io);
 				}
-			}
-
-			if (any_connecting) {
 				continue;
 			}
 
 			unsigned char bdd_revents = 0;
 
-			if ((revents & POLLIN) && !io->eof) {
+			if (revents & POLLERR) {
+				if (io->state == BDD_IO_STATE_ESTABLISHED) {
+					bdd_io_internal_break_established(conversation, io);
+				} else if (io->state != BDD_IO_STATE_BROKEN) {
+					bdd_io_internal_break(conversation, io);
+				}
+			} else if (revents & POLLHUP) {
+				io->tcp_hup = 1;
+			}
+
+			if (
+				(io->state == BDD_IO_STATE_ESTABLISHED || io->state == BDD_IO_STATE_ESTABLISHED_BROKEN) &&
+				(revents & POLLIN) &&
+				!io->eof
+			) {
 				bdd_revents |= BDDEV_IN;
 			}
 
-			if (revents & POLLERR) {
-				bdd_revents |= BDDEV_ERR;
-				io->no_epoll = 1;
-			} else if (revents & POLLHUP) {
-				io->no_epoll = 1;
-			}
-
-			if (!io->shutdown_called && (revents & POLLOUT)) {
+			if (io->state == BDD_IO_STATE_ESTABLISHED && !io->shutdown_called && (revents & POLLOUT)) {
 				bdd_revents |= BDDEV_OUT;
 			}
 
-			if (r == 0 || bdd_revents == 0) {
+			if (io->state == BDD_IO_STATE_BROKEN || io->state == BDD_IO_STATE_ESTABLISHED_BROKEN) {
+				bdd_revents |= BDDEV_ERR;
+			}
+
+			if (bdd_revents == 0) {
 				continue;
 			}
 
@@ -355,7 +340,12 @@ void *bdd_serve(struct bdd_instance *instance) {
 
 		BDD_DEBUG_LOG("found working conversation struct\n");
 
-		bdd_conversation_work(instance, &(conversation), &(next_worker_id));
+		conversation->service->handle_events(
+			conversation
+		);
+
+		bdd_conversation_link(instance, &(conversation));
+		//bdd_conversation_work(instance, &(conversation), &(next_worker_id));
 		events_iter:;
 	}
 

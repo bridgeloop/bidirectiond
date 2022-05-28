@@ -202,9 +202,6 @@ void *bdd_accept(struct bdd_instance *instance) {
 			break;
 		}
 	}
-	if (unlikely(atomic_load(&(instance->exiting)))) {
-		bdd_thread_exit(instance);
-	}
 
 	struct bdd_conversation *conversation = NULL;
 	SSL *client_ssl = NULL;
@@ -212,8 +209,9 @@ void *bdd_accept(struct bdd_instance *instance) {
 	ctx->protocol_name = NULL;
 	ctx->cstr_protocol_name = NULL;
 	int cl_socket = -1;
-	conversation = bdd_conversation_obtain(instance);
-	assert(conversation != NULL);
+	if ((conversation = bdd_conversation_obtain(instance)) == NULL) {
+		bdd_thread_exit(instance);
+	}
 	if ((client_ssl = SSL_new(instance->accept.ssl_ctx)) == NULL) {
 		goto err;
 	}
