@@ -6,6 +6,7 @@
 #include "headers/workers.h"
 #include "headers/bdd_io.h"
 #include "headers/instance.h"
+#include "headers/coac.h"
 #include "headers/debug_log.h"
 #include "headers/unlikely.h"
 #include "headers/signal.h"
@@ -38,17 +39,19 @@ void *bdd_worker(struct bdd_worker *worker) {
 		bdd_thread_exit(instance);
 	}
 
-	struct bdd_conversation *conversation = worker->conversations;
-	worker->conversations = conversation->next;
+	struct bdd_coac *coac = worker->conversations;
+	worker->conversations = coac->next;
 
 	pthread_mutex_unlock(&(worker->work_mutex));
+
+	struct bdd_conversation *conversation = &(coac->inner.conversation);
 
 	assert(conversation->service->handle_events != NULL);
 	conversation->service->handle_events(
 		conversation
 	);
 
-	bdd_conversation_link(instance, &(conversation));
+	bdd_coac_link(instance, &(coac));
 
 	goto work;
 }

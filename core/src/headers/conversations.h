@@ -12,52 +12,17 @@
 #include "bdd_io_shutdown.h"
 #include "bdd_conversation_n_max_io.h"
 
+struct bdd_coac;
 struct bdd_instance;
 struct bdd_service;
 struct bdd_io;
-
-int bdd_conversation_id(struct bdd_instance *instance, struct bdd_conversation *conversation);
 
 struct bdd_associated {
 	void *data;
 	void (*destructor)(void *data);
 };
 
-// bdd_conversations are passed around four differently-purposed
-// linked lists.
-
-// conversations_to_epoll is a list of conversations to be processed
-// by a loop in serve.c which will either discard a conversation,
-// or add it to an epoll instance, and then move it into
-// valid_conversations.
-// conversations_to_epoll does not use the `prev` pointer.
-
-// valid_conversations is a linked list of conversations that are
-// in the epoll instance. conversations in valid_conversations that
-// have been inactive for a long time will be discarded. otherwise,
-// if an io associated with a conversation in valid_conversions
-// receives an event, it will be processed in serve.c, and it will
-// either be moved into conversations_to_discard, or it will be
-// moved into a worker's conversation list.
-// valid_conversations' entries must have a valid `prev` pointer
-// (NULL is a valid value for the `prev` pointer).
-
-// conversations_to_discard is a linked list of conversations to
-// be discared as soon as possible.
-// conversations_to_discard does not use the `prev` pointer.
-
-// a worker's conversation list is a list of conversations that
-// should be passed to a service's serve function.
-// a worker's conversation list does not use the `prev` pointer.
 struct bdd_conversation {
-	// valid_conversations
-	// set by the conversations_to_epoll processor when the conversation is moved into valid_conversations
-	time_t accessed_at;
-	struct bdd_conversation *prev;
-	// all linked lists of bdd_conversations
-	// set when a conversation is moved into a linked list
-	struct bdd_conversation *next;
-
 	// set by bdd_conversation_init
 	const struct bdd_service *service;
 
@@ -66,7 +31,7 @@ struct bdd_conversation {
 	// technically set by a service, destroyed by a service or bdd_conversation_deinit
 	struct bdd_associated associated;
 
-	bool skip; // moved out of the valid_conversations linked list - set by bdd_serve
+	bool seen; // bdd_serve
 	bdd_io_id n_connecting; // amount of connecting IOs - set by bdd_io_connect, and bdd_serve
 };
 
@@ -83,10 +48,8 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	const char *protocol_name,
 	const void *instance_info
 );
-struct bdd_conversation *bdd_conversation_obtain(struct bdd_instance *instance);
-void bdd_conversation_release(struct bdd_instance *instance, struct bdd_conversation **conversation);
-void bdd_conversation_deinit(struct bdd_conversation *conversation);
-void bdd_conversation_link(struct bdd_instance *instance, struct bdd_conversation **conversation);
+
+void bdd_conversation_deinit(struct bdd_instance *instance, struct bdd_conversation *conversation);
 
 void bdd_io_internal_set_state(struct bdd_conversation *conversation, struct bdd_io *io, uint8_t state);
 int bdd_io_internal_fd(struct bdd_io *io);

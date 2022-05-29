@@ -8,6 +8,7 @@
 
 #include "headers/instance.h"
 #include "headers/conversations.h"
+#include "headers/coac.h"
 #include "headers/bdd_settings.h"
 #include "headers/bdd_pthread_preinit.h"
 #include "headers/workers.h"
@@ -67,17 +68,20 @@ void bdd_destroy(struct bdd_instance *instance) {
 	close(instance->epoll_fd);
 	free(instance->epoll_oevents);
 
-	pthread_mutex_destroy(&(instance->available_conversations.mutex));
-	pthread_cond_destroy(&(instance->available_conversations.cond));
+	pthread_mutex_destroy(&(instance->available_coac.mutex));
+	pthread_cond_destroy(&(instance->available_coac.cond));
 
 	for (
 		size_t idx = 0;
-		idx < instance->conversations_idx;
+		idx < instance->coac_idx;
 		++idx
 	) {
-		bdd_conversation_deinit(&(instance->conversations[idx]));
+		struct bdd_coac *coac = &(instance->coac[idx]);
+		if (coac->inner_type == bdd_coac_conversation) {
+			bdd_conversation_deinit(instance, &(coac->inner.conversation));
+		}
 	}
-	free(instance->conversations);
+	free(instance->coac);
 
 	pthread_mutex_destroy(&(instance->conversations_to_epoll.mutex));
 
@@ -136,13 +140,13 @@ struct bdd_instance *bdd_instance_alloc(void) {
 	// server socket
 	instance->sv_socket = -1;
 	// conversations
-	instance->n_conversations = 0;
-	instance->conversations = NULL;
-	instance->conversations_idx = 0;
-	instance->available_conversations.ids = NULL;
-	instance->available_conversations.idx = 0;
-	bdd_mutex_preinit(&(instance->available_conversations.mutex));
-	bdd_cond_preinit(&(instance->available_conversations.cond));
+	instance->n_coac = 0;
+	instance->coac = NULL;
+	instance->coac_idx = 0;
+	instance->available_coac.ids = NULL;
+	instance->available_coac.idx = 0;
+	bdd_mutex_preinit(&(instance->available_coac.mutex));
+	bdd_cond_preinit(&(instance->available_coac.cond));
 	// linked conversations
 	bdd_mutex_preinit(&(instance->conversations_to_epoll.mutex));
 	instance->conversations_to_epoll.head = NULL;
@@ -229,33 +233,31 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 	// server socket
 	instance->sv_socket = settings.sv_socket;
 	// conversations
-	instance->n_conversations = settings.n_conversations;
-	instance->conversations = malloc(
-		(settings.n_conversations * sizeof(struct bdd_conversation)) +
+	instance->n_coac = settings.n_conversations;
+	instance->coac = malloc(
+		(settings.n_conversations * sizeof(struct bdd_coac)) +
 		(settings.n_conversations * sizeof(int))
 	);
-	if (instance->conversations == NULL) {
+	if (instance->coac == NULL) {
 		goto err;
 	}
 	// available stack
-	instance->available_conversations.ids = (void *)&(instance->conversations[settings.n_conversations]);
-	instance->available_conversations.idx = 0;
+	instance->available_coac.ids = (void *)&(instance->coac[settings.n_conversations]);
+	instance->available_coac.idx = 0;
 	if (
-		pthread_mutex_init(&(instance->available_conversations.mutex), NULL) != 0 ||
-		pthread_cond_init(&(instance->available_conversations.cond), NULL) != 0
+		pthread_mutex_init(&(instance->available_coac.mutex), NULL) != 0 ||
+		pthread_cond_init(&(instance->available_coac.cond), NULL) != 0
 	) {
 		goto err;
 	}
 	// init conversations, and the available stack
 	for (
-		int *idx = &(instance->conversations_idx);
+		int *idx = &(instance->coac_idx);
 		(*idx) < settings.n_conversations;
 		++(*idx)
 	) {
-		instance->conversations[(*idx)].associated.data = NULL;
-		instance->conversations[(*idx)].associated.destructor = NULL;
-		instance->conversations[(*idx)].io_array = NULL;
-		instance->available_conversations.ids[(*idx)] = (*idx);
+		instance->coac->inner_type = bdd_coac_none;
+		instance->available_coac.ids[(*idx)] = (*idx);
 	}
 	// to epoll
 	if (pthread_mutex_init(&(instance->conversations_to_epoll.mutex), NULL) != 0) {
@@ -280,7 +282,7 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		goto err;
 	}
 	struct epoll_event event = {
-	    .events = EPOLLIN,
+		.events = EPOLLIN,
 	    .data = {
 		    .ptr = NULL,
 		},

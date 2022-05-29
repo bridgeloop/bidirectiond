@@ -9,6 +9,7 @@ struct bdd_accept_ctx {
 	struct bdd_service_instance *service_instance;
 	const unsigned char *protocol_name;
 	const char *cstr_protocol_name;
+	//SSL *ssl;
 };
 
 int bdd_alpn_cb(

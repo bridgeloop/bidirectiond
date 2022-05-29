@@ -5,7 +5,7 @@
 #include <stdatomic.h>
 #include <pthread.h>
 #include <time.h>
-struct bdd_conversation;
+struct bdd_coac;
 #include <poll.h>
 #include <openssl/ssl.h>
 #include "accept.h"
@@ -36,14 +36,14 @@ struct bdd_instance {
 		pthread_cond_t cond;
 		int *ids;
 		int idx;
-	} available_conversations;
-	int n_conversations;
-	struct bdd_conversation *conversations;
-	int conversations_idx;
+	} available_coac;
+	int n_coac;
+	struct bdd_coac *coac;
+	int coac_idx;
 
 	struct {
 		pthread_mutex_t mutex;
-		struct bdd_conversation *head;
+		struct bdd_coac *head;
 	} conversations_to_epoll;
 
 	struct {

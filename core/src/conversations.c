@@ -1,13 +1,11 @@
-#include <poll.h>
-#include <sys/epoll.h>
 #include <stdio.h>
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
 #include <assert.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <alloca.h>
 #include <errno.h>
+#include <sys/epoll.h>
 
 #include "headers/instance.h"
 #include "headers/signal.h"
@@ -28,9 +26,6 @@ unsigned char bdd_revent(struct bdd_conversation *conversation, bdd_io_id io_id)
 }
 bdd_io_id bdd_conversation_n_max_io(struct bdd_conversation *conversation) {
 	return conversation->service->n_max_io;
-}
-int bdd_conversation_id(struct bdd_instance *instance, struct bdd_conversation *conversation) {
-	return (((char *)conversation - (char *)(instance->conversations)) / sizeof(struct bdd_conversation));
 }
 
 void *bdd_get_associated(struct bdd_conversation *conversation) {
@@ -71,6 +66,9 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	conversation->service = service;
 	conversation->n_connecting = 0;
 
+	conversation->associated.data = NULL;
+	conversation->associated.destructor = NULL;
+
 	conversation->io_array = malloc(
 		(sizeof(struct bdd_io) * service->n_max_io) +
 		(sizeof(unsigned char) * service->n_max_io)
@@ -90,7 +88,7 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	io_array[0].ssl_alpn = 0; // irrelevant value
 	io_array[0].ssl_shutdown_fully = 0;
 
-	io_array[0].in_epoll = 0; // irrelevant value
+	io_array[0].in_epoll = 0;
 
 	io_array[0].eof = 0;
 
@@ -111,12 +109,15 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	}
 	return bdd_conversation_init_success;
 }
-void bdd_conversation_deinit(struct bdd_conversation *conversation) {
+void bdd_conversation_deinit(struct bdd_instance *instance, struct bdd_conversation *conversation) {
 	if (conversation->io_array != NULL) {
 		for (bdd_io_id io_id = 0; io_id < bdd_conversation_n_max_io(conversation); ++io_id) {
 			struct bdd_io *io = &(conversation->io_array[io_id]);
 			if (io->state == BDD_IO_STATE_UNUSED) {
 				continue;
+			}
+			if (io->in_epoll) {
+				epoll_ctl(instance->epoll_fd, bdd_io_internal_fd(io), EPOLL_CTL_DEL, NULL);
 			}
 			bdd_io_remove(conversation, io_id);
 		}
@@ -124,58 +125,5 @@ void bdd_conversation_deinit(struct bdd_conversation *conversation) {
 		conversation->io_array = NULL;
 	}
 	bdd_set_associated(conversation, NULL, NULL);
-	return;
-}
-
-// put a conversation into conversations_to_epoll //
-
-void bdd_conversation_link(struct bdd_instance *instance, struct bdd_conversation **conversation_ref) {
-	assert(conversation_ref != NULL);
-	struct bdd_conversation *conversation = (*conversation_ref);
-	(*conversation_ref) = NULL;
-	assert(conversation != NULL);
-	pthread_mutex_lock(&(instance->conversations_to_epoll.mutex));
-	conversation->next = instance->conversations_to_epoll.head;
-	instance->conversations_to_epoll.head = conversation;
-	bdd_signal(instance);
-	pthread_mutex_unlock(&(instance->conversations_to_epoll.mutex));
-	return;
-}
-
-// safely obtain and release conversations //
-
-struct bdd_conversation *bdd_conversation_obtain(struct bdd_instance *instance) {
-	struct bdd_conversation *conversation = NULL;
-	pthread_mutex_lock(&(instance->available_conversations.mutex));
-	while (!atomic_load(&(instance->exiting)) && instance->available_conversations.idx == instance->n_conversations) {
-		pthread_cond_wait(&(instance->available_conversations.cond), &(instance->available_conversations.mutex));
-	}
-	if (!atomic_load(&(instance->exiting))) {
-		int id = instance->available_conversations.ids[instance->available_conversations.idx++];
-		conversation = &(instance->conversations[id]);
-	}
-	pthread_mutex_unlock(&(instance->available_conversations.mutex));
-	return conversation;
-}
-void bdd_conversation_release(struct bdd_instance *instance, struct bdd_conversation **conversation_ref) {
-	assert(conversation_ref != NULL);
-
-	struct bdd_conversation *conversation = (*conversation_ref);
-	(*conversation_ref) = NULL;
-	assert(conversation != NULL);
-
-	pthread_mutex_lock(&(instance->available_conversations.mutex));
-
-	assert(instance->available_conversations.idx != 0);
-
-	int id = bdd_conversation_id(instance, conversation);
-
-	assert(id >= 0 && id < instance->n_conversations);
-
-	instance->available_conversations.ids[--(instance->available_conversations.idx)] = id;
-
-	pthread_cond_signal(&(instance->available_conversations.cond));
-	pthread_mutex_unlock(&(instance->available_conversations.mutex));
-
 	return;
 }

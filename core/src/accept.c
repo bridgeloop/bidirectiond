@@ -13,6 +13,7 @@
 #include "headers/unlikely.h"
 #include "headers/debug_log.h"
 #include "headers/conversations.h"
+#include "headers/coac.h"
 #include "headers/name_descs.h"
 #include "headers/bdd_service.h"
 #include "headers/signal.h"
@@ -203,15 +204,18 @@ void *bdd_accept(struct bdd_instance *instance) {
 		}
 	}
 
-	struct bdd_conversation *conversation = NULL;
+	struct bdd_coac *coac = bdd_coac_obtain(instance);
+	if (coac == NULL) {
+		bdd_thread_exit(instance);
+	}
+	coac->inner_type = bdd_coac_conversation;
+	struct bdd_conversation *conversation = &(coac->inner.conversation);
 	SSL *client_ssl = NULL;
 	ctx->service_instance = NULL;
 	ctx->protocol_name = NULL;
 	ctx->cstr_protocol_name = NULL;
 	int cl_socket = -1;
-	if ((conversation = bdd_conversation_obtain(instance)) == NULL) {
-		bdd_thread_exit(instance);
-	}
+
 	if ((client_ssl = SSL_new(instance->accept.ssl_ctx)) == NULL) {
 		goto err;
 	}
@@ -259,11 +263,11 @@ void *bdd_accept(struct bdd_instance *instance) {
 			goto err;
 		}
 		case (bdd_conversation_init_success): {
-			bdd_conversation_link(instance, &(conversation));
+			bdd_coac_link(instance, &(coac));
 			break;
 		}
 		case (bdd_conversation_init_failed_wants_deinit): {
-			bdd_conversation_deinit(conversation);
+			bdd_conversation_deinit(instance, conversation);
 			goto err;
 		}
 	}
@@ -280,8 +284,6 @@ void *bdd_accept(struct bdd_instance *instance) {
 	if (cl_socket >= 0) {
 		close(cl_socket);
 	}
-	if (conversation != NULL) {
-		bdd_conversation_release(instance, &(conversation));
-	}
+	bdd_coac_release(instance, &(coac));
 	goto poll;
 }
