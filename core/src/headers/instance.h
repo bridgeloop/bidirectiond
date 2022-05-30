@@ -12,7 +12,8 @@ struct bdd_coac;
 struct bdd_worker;
 #include <stddef.h>
 
-struct bdd_instance {
+struct bdd_gv {
+	SSL_CTX *cl_ssl_ctx;
 	sigset_t sigmask;
 
 	atomic_bool exiting;
@@ -21,12 +22,15 @@ struct bdd_instance {
 	pthread_mutex_t n_running_threads_mutex;
 	pthread_cond_t n_running_threads_cond;
 
+	int epoll_fd;
 	int n_epoll_oevents;
 	struct epoll_event *epoll_oevents;
+	int epoll_timeout;
 
 	void *name_descs;
 
 	int sv_socket;
+	int serve_eventfd;
 
 	struct {
 		pthread_mutex_t mutex;
@@ -37,6 +41,11 @@ struct bdd_instance {
 	int n_coac;
 	struct bdd_coac *coac;
 	int coac_idx;
+
+	struct {
+		pthread_mutex_t mutex;
+		struct bdd_coac *head;
+	} conversations_to_epoll;
 
 	struct {
 		int eventfd;
@@ -55,5 +64,6 @@ struct bdd_instance {
 	struct bdd_worker *workers;
 	unsigned short int workers_idx;
 };
+extern struct bdd_gv bdd_gv;
 
 #endif

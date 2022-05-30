@@ -74,7 +74,7 @@ int main(int argc, char *argv[], char *env[]) {
 	ERR_load_BIO_strings();
 	ERR_load_crypto_strings();
 
-	struct bdd_instance *bdd_instance = NULL;
+	bool bdd_instance;
 	int input_fd = -1;
 	struct sockaddr_un input_addr = {
 		0,
@@ -427,7 +427,7 @@ int main(int argc, char *argv[], char *env[]) {
 
 	// serve
 	bdd_instance = bdd_go(settings);
-	if (bdd_instance == NULL) {
+	if (!bdd_instance) {
 		goto clean_up;
 	}
 	if (big_alloc_sz > 0) {
@@ -468,10 +468,10 @@ int main(int argc, char *argv[], char *env[]) {
 	}
 
 	clean_up:;
-	if (bdd_instance != NULL) {
-		bdd_stop(bdd_instance);
-		bdd_wait(bdd_instance);
-		bdd_destroy(bdd_instance);
+	if (bdd_instance) {
+		bdd_stop();
+		bdd_wait();
+		bdd_destroy();
 	}
 	if (sig_fd != -1) {
 		close(sig_fd);

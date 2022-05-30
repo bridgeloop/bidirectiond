@@ -110,7 +110,7 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	}
 	return bdd_conversation_init_success;
 }
-void bdd_conversation_deinit(struct bdd_instance *instance, struct bdd_conversation *conversation) {
+void bdd_conversation_deinit(struct bdd_conversation *conversation) {
 	if (conversation->io_array != NULL) {
 		for (bdd_io_id io_id = 0; io_id < bdd_conversation_n_max_io(conversation); ++io_id) {
 			struct bdd_io *io = &(conversation->io_array[io_id]);
@@ -118,7 +118,7 @@ void bdd_conversation_deinit(struct bdd_instance *instance, struct bdd_conversat
 				continue;
 			}
 			if (io->in_epoll) {
-				epoll_ctl(bdd_epoll_fd, bdd_io_internal_fd(io), EPOLL_CTL_DEL, NULL);
+				epoll_ctl(bdd_gv.epoll_fd, bdd_io_internal_fd(io), EPOLL_CTL_DEL, NULL);
 			}
 			bdd_io_remove(conversation, io_id);
 		}

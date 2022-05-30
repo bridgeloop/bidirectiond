@@ -9,11 +9,10 @@
 #include "../src/headers/bdd_service.h"
 #include "../src/headers/bdd_stop.h"
 
-struct bdd_instance;
 struct bdd_name_descs;
 struct bdd_instance *bdd_go(struct bdd_settings settings);
-void bdd_wait(struct bdd_instance *instance);
-void bdd_destroy(struct bdd_instance *instance);
+void bdd_wait(void);
+void bdd_destroy(void);
 
 bool bdd_name_descs_use_cert_pkey(
 	struct bdd_name_descs *name_descriptions,

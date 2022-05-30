@@ -3,10 +3,8 @@
 
 #include "bdd_stop.h"
 
-struct bdd_instance;
-
-void bdd_signal(struct bdd_instance *instance);
-void bdd_stop_accept(struct bdd_instance *instance);
-void bdd_thread_exit(struct bdd_instance *instance);
+void bdd_signal(void);
+void bdd_stop_accept(void);
+void bdd_thread_exit(void);
 
 #endif

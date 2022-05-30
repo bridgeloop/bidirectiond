@@ -13,7 +13,6 @@
 #include "bdd_conversation_n_max_io.h"
 
 struct bdd_coac;
-struct bdd_instance;
 struct bdd_service;
 struct bdd_io;
 
@@ -49,7 +48,7 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	const void *instance_info
 );
 
-void bdd_conversation_deinit(struct bdd_instance *instance, struct bdd_conversation *conversation);
+void bdd_conversation_deinit(struct bdd_conversation *conversation);
 
 void bdd_io_internal_set_state(struct bdd_conversation *conversation, struct bdd_io *io, uint8_t state);
 int bdd_io_internal_fd(struct bdd_io *io);

@@ -24,9 +24,8 @@ int bdd_alpn_cb(
 	unsigned char *outlen,
 	const unsigned char *_,
 	unsigned int __,
-	struct bdd_instance *instance
+	struct bdd_accept_ctx *ctx
 ) {
-	struct bdd_accept_ctx *ctx = &(instance->accept.ctx);
 	if (ctx->protocol_name == NULL) {
 		return SSL_TLSEXT_ERR_NOACK;
 	}
@@ -35,9 +34,8 @@ int bdd_alpn_cb(
 	return SSL_TLSEXT_ERR_OK;
 }
 
-int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_instance *instance) {
-	struct bdd_accept_ctx *ctx = &(instance->accept.ctx);
-	struct hashmap *name_descs = instance->name_descs;
+int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
+	struct hashmap *name_descs = bdd_gv.name_descs;
 	struct hashmap_key key = HASHMAP_KEY_INITIALIZER;
 	int r = SSL_CLIENT_HELLO_ERROR;
 	const unsigned char *extension;
@@ -190,23 +188,23 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_instance *instance) {
 	}
 	r = SSL_CLIENT_HELLO_SUCCESS;
 	out:;
-	hashmap_key_release(instance->name_descs, &(key), false);
+	hashmap_key_release(bdd_gv.name_descs, &(key), false);
 	return r;
 }
 
-void *bdd_accept(struct bdd_instance *instance) {
-	struct bdd_accept_ctx *ctx = &(instance->accept.ctx);
+void *bdd_accept(void) {
+	struct bdd_accept_ctx *ctx = &(bdd_gv.accept.ctx);
 	poll:;
-	while (poll(instance->accept.pollfds, 2, -1) < 0) {
+	while (poll(bdd_gv.accept.pollfds, 2, -1) < 0) {
 		if (errno != EINTR) {
-			bdd_stop(instance);
+			bdd_stop();
 			break;
 		}
 	}
 
-	struct bdd_coac *coac = bdd_coac_obtain(instance);
+	struct bdd_coac *coac = bdd_coac_obtain();
 	if (coac == NULL) {
-		bdd_thread_exit(instance);
+		bdd_thread_exit();
 	}
 	coac->inner_type = bdd_coac_conversation;
 	struct bdd_conversation *conversation = &(coac->inner.conversation);
@@ -216,7 +214,7 @@ void *bdd_accept(struct bdd_instance *instance) {
 	ctx->cstr_protocol_name = NULL;
 	int cl_socket = -1;
 
-	if ((client_ssl = SSL_new(instance->accept.ssl_ctx)) == NULL) {
+	if ((client_ssl = SSL_new(bdd_gv.accept.ssl_ctx)) == NULL) {
 		goto err;
 	}
 
@@ -225,7 +223,7 @@ void *bdd_accept(struct bdd_instance *instance) {
 	struct sockaddr cl_sockaddr;
 	socklen_t sockaddr_sz = sizeof(struct sockaddr);
 	do {
-		cl_socket = accept(instance->sv_socket, &(cl_sockaddr), &(sockaddr_sz));
+		cl_socket = accept(bdd_gv.sv_socket, &(cl_sockaddr), &(sockaddr_sz));
 	} while (cl_socket < 0 && errno == EINTR);
 	if (cl_socket < 0) {
 		BDD_DEBUG_LOG("rejected tcp connection\n");
@@ -263,11 +261,11 @@ void *bdd_accept(struct bdd_instance *instance) {
 			goto err;
 		}
 		case (bdd_conversation_init_success): {
-			bdd_coac_link(instance, &(coac));
+			bdd_coac_link(&(coac));
 			break;
 		}
 		case (bdd_conversation_init_failed_wants_deinit): {
-			bdd_conversation_deinit(instance, conversation);
+			bdd_conversation_deinit(conversation);
 			goto err;
 		}
 	}
@@ -284,6 +282,6 @@ void *bdd_accept(struct bdd_instance *instance) {
 	if (cl_socket >= 0) {
 		close(cl_socket);
 	}
-	bdd_coac_release(instance, &(coac));
+	bdd_coac_release(&(coac));
 	goto poll;
 }

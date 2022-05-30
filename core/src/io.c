@@ -15,7 +15,6 @@
 #include "headers/bdd_io.h"
 #include "headers/bdd_io_connect.h"
 #include "headers/bdd_io_shutdown.h"
-#include "headers/internal_globals.h"
 
 void bdd_io_internal_set_state(struct bdd_conversation *conversation, struct bdd_io *io, uint8_t state) {
 	assert(
@@ -319,7 +318,7 @@ bool bdd_io_prep_ssl(struct bdd_conversation *conversation, bdd_io_id io_id, cha
 		goto err;
 	}
 
-	ssl = SSL_new(BDD_GLOBAL_CL_SSL_CTX);
+	ssl = SSL_new(bdd_gv.cl_ssl_ctx);
 	if (ssl == NULL) {
 		goto err;
 	}

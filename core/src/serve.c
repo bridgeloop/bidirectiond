@@ -27,12 +27,6 @@
 static struct bdd_coac
 	*timeout_list_head = NULL,
 	*timeout_list_tail = NULL;
-struct bdd_coac *bdd_conversations_to_epoll = NULL;
-pthread_mutex_t bdd_conversations_to_epoll_mutex = PTHREAD_MUTEX_INITIALIZER;
-int
-	bdd_epoll_fd = -1,
-	bdd_epoll_timeout = -1,
-	bdd_event_fd = -1;
 
 time_t bdd_time(void) {
 	time_t ms = 0;
@@ -139,7 +133,7 @@ static bool bdd_conversation_epoll(struct bdd_coac *coac) {
 				.ptr = coac,
 			},
 		};
-		if (epoll_ctl(bdd_epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
+		if (epoll_ctl(bdd_gv.epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
 			for (bdd_io_id idx2 = 0; idx2 < idx; ++idx2) {
 				io = &(conversation->io_array[idx2]);
 				if (!io->in_epoll) {
@@ -147,7 +141,7 @@ static bool bdd_conversation_epoll(struct bdd_coac *coac) {
 				}
 				fd = bdd_io_internal_fd(io);
 
-				int r = epoll_ctl(bdd_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+				int r = epoll_ctl(bdd_gv.epoll_fd, EPOLL_CTL_DEL, fd, NULL);
 				assert(r == 0);
 			}
 			return false;
@@ -186,7 +180,7 @@ static enum bdd_handle_conversation_status bdd_handle_conversation(struct bdd_co
 		}
 
 		int r = epoll_ctl(
-			bdd_epoll_fd,
+			bdd_gv.epoll_fd,
 			EPOLL_CTL_DEL,
 			(pollfd.fd = bdd_io_internal_fd(io)),
 			NULL
@@ -281,8 +275,8 @@ static enum bdd_handle_conversation_status bdd_handle_conversation(struct bdd_co
 	return bdd_handle_conversation_work;
 }
 
-void *bdd_serve(struct bdd_instance *instance) {
-	pthread_sigmask(SIG_BLOCK, &(instance->sigmask), NULL);
+void *bdd_serve(void) {
+	pthread_sigmask(SIG_BLOCK, &(bdd_gv.sigmask), NULL);
 	unsigned short int next_worker_id = 0;
 	struct bdd_coac
 		*conversations_to_discard = NULL,
@@ -294,37 +288,37 @@ void *bdd_serve(struct bdd_instance *instance) {
 
 	int n_events;
 	do {
-		n_events = epoll_wait(bdd_epoll_fd, instance->epoll_oevents, instance->n_epoll_oevents, bdd_epoll_timeout);
+		n_events = epoll_wait(bdd_gv.epoll_fd, bdd_gv.epoll_oevents, bdd_gv.n_epoll_oevents, bdd_gv.epoll_timeout);
 	} while (n_events < 0 && errno == EINTR);
 	if (unlikely(n_events < 0)) {
 		fprintf(stderr, "bidirectiond epoll error: %i - try increasing your rlimits for open files\n", errno);
-		bdd_stop(instance);
-		bdd_thread_exit(instance);
+		bdd_stop();
+		bdd_thread_exit();
 	}
 
-	pthread_mutex_lock(&(bdd_conversations_to_epoll_mutex));
+	pthread_mutex_lock(&(bdd_gv.conversations_to_epoll.mutex));
 	{
 		char g[9];
-		int r = read(bdd_event_fd, &(g), 9);
+		int r = read(bdd_gv.serve_eventfd, &(g), 9);
 		assert(r == 8 || r < 0);
 	}
-	if (unlikely(atomic_load(&(instance->exiting)))) {
-		bdd_thread_exit(instance);
+	if (unlikely(atomic_load(&(bdd_gv.exiting)))) {
+		bdd_thread_exit();
 	}
-	while (bdd_conversations_to_epoll != NULL) {
-		struct bdd_coac *coac = bdd_conversations_to_epoll;
-		bdd_conversations_to_epoll = coac->next;
+	while (bdd_gv.conversations_to_epoll.head != NULL) {
+		struct bdd_coac *coac = bdd_gv.conversations_to_epoll.head;
+		bdd_gv.conversations_to_epoll.head = coac->next;
 		if (bdd_conversation_epoll(coac)) {
 			bdd_coac_tl_link(&(coac));
 		} else {
-			bdd_conversation_deinit(instance, &(coac->inner.conversation));
-			bdd_coac_release(instance, &(coac));
+			bdd_conversation_deinit(&(coac->inner.conversation));
+			bdd_coac_release(&(coac));
 		}
 	}
-	pthread_mutex_unlock(&(bdd_conversations_to_epoll_mutex));
+	pthread_mutex_unlock(&(bdd_gv.conversations_to_epoll.mutex));
 
 	for (int idx = 0; idx < n_events; ++idx) {
-		struct epoll_event *event = &(instance->epoll_oevents[idx]);
+		struct epoll_event *event = &(bdd_gv.epoll_oevents[idx]);
 		struct bdd_coac *coac = event->data.ptr;
 
 		if (coac == NULL) { // eventfd
@@ -355,22 +349,22 @@ void *bdd_serve(struct bdd_instance *instance) {
 					}
 					case (bdd_handle_conversation_work): {
 						struct bdd_worker *worker;
-						if (instance->available_workers.ids == NULL) {
-							worker = &(instance->workers[next_worker_id]);
-							next_worker_id = (next_worker_id + 1) % instance->n_workers;
+						if (bdd_gv.available_workers.ids == NULL) {
+							worker = &(bdd_gv.workers[next_worker_id]);
+							next_worker_id = (next_worker_id + 1) % bdd_gv.n_workers;
 						} else {
-							pthread_mutex_lock(&(instance->available_workers.mutex));
-							if (instance->available_workers.idx == instance->n_workers) {
+							pthread_mutex_lock(&(bdd_gv.available_workers.mutex));
+							if (bdd_gv.available_workers.idx == bdd_gv.n_workers) {
 								BDD_DEBUG_LOG("no available worker threads; waiting...\n");
 								do {
 									pthread_cond_wait(
-										&(instance->available_workers.cond),
-										&(instance->available_workers.mutex)
+										&(bdd_gv.available_workers.cond),
+										&(bdd_gv.available_workers.mutex)
 									);
-								} while (instance->available_workers.idx == instance->n_workers);
+								} while (bdd_gv.available_workers.idx == bdd_gv.n_workers);
 							}
-							worker = &(instance->workers[instance->available_workers.ids[(instance->available_workers.idx)++]]);
-							pthread_mutex_unlock(&(instance->available_workers.mutex));
+							worker = &(bdd_gv.workers[bdd_gv.available_workers.ids[(bdd_gv.available_workers.idx)++]]);
+							pthread_mutex_unlock(&(bdd_gv.available_workers.mutex));
 						}
 
 						BDD_DEBUG_LOG("worker thread %i chosen!\n", (int)worker->id);
@@ -392,30 +386,30 @@ void *bdd_serve(struct bdd_instance *instance) {
 		}
 	}
 
-	if (bdd_epoll_timeout >= 0) {
+	if (bdd_gv.epoll_timeout >= 0) {
 		for (;;) {
 			struct bdd_coac *coac = timeout_list_head;
 			if (coac == NULL) {
 				timeout_list_tail = NULL;
 				break;
 			}
-			if (bdd_time() - coac->accessed_at < bdd_epoll_timeout) {
+			if (bdd_time() - coac->accessed_at < bdd_gv.epoll_timeout) {
 				break;
 			}
 			timeout_list_head = coac->next;
 			if (timeout_list_head != NULL) {
 				timeout_list_head->prev = NULL;
 			}
-			bdd_conversation_deinit(instance, &(coac->inner.conversation));
-			bdd_coac_release(instance, &(coac));
+			bdd_conversation_deinit(&(coac->inner.conversation));
+			bdd_coac_release(&(coac));
 		}
 	}
 
 	while (conversations_to_discard != NULL) {
 		struct bdd_coac *coac = conversations_to_discard;
 		conversations_to_discard = coac->next;
-		bdd_conversation_deinit(instance, &(coac->inner.conversation));
-		bdd_coac_release(instance, &(coac));
+		bdd_conversation_deinit(&(coac->inner.conversation));
+		bdd_coac_release(&(coac));
 	}
 
 	while (conversations_to_epoll2 != NULL) {
@@ -424,8 +418,8 @@ void *bdd_serve(struct bdd_instance *instance) {
 		if (bdd_conversation_epoll(coac)) {
 			bdd_coac_tl_link(&(coac));
 		} else {
-			bdd_conversation_deinit(instance, &(coac->inner.conversation));
-			bdd_coac_release(instance, &(coac));
+			bdd_conversation_deinit(&(coac->inner.conversation));
+			bdd_coac_release(&(coac));
 		}
 	}
 

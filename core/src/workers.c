@@ -14,29 +14,27 @@
 #include "headers/conversations.h"
 
 void *bdd_worker(struct bdd_worker *worker) {
-	struct bdd_instance *instance = worker->instance;
-
-	pthread_sigmask(SIG_BLOCK, &(instance->sigmask), NULL);
+	pthread_sigmask(SIG_BLOCK, &(bdd_gv.sigmask), NULL);
 
 	work:;
-	if (instance->available_workers.ids != NULL) {
-		pthread_mutex_lock(&(instance->available_workers.mutex));
-		instance->available_workers.ids[--(instance->available_workers.idx)] = worker->id;
-		pthread_cond_signal(&(instance->available_workers.cond));
-		pthread_mutex_unlock(&(instance->available_workers.mutex));
+	if (bdd_gv.available_workers.ids != NULL) {
+		pthread_mutex_lock(&(bdd_gv.available_workers.mutex));
+		bdd_gv.available_workers.ids[--(bdd_gv.available_workers.idx)] = worker->id;
+		pthread_cond_signal(&(bdd_gv.available_workers.cond));
+		pthread_mutex_unlock(&(bdd_gv.available_workers.mutex));
 	}
 	BDD_DEBUG_LOG("thread accepting work\n");
 
 	// await work
 	pthread_mutex_lock(&(worker->work_mutex));
-	while (worker->conversations == NULL && !atomic_load(&(instance->exiting))) {
+	while (worker->conversations == NULL && !atomic_load(&(bdd_gv.exiting))) {
 		pthread_cond_wait(&(worker->work_cond), &(worker->work_mutex));
 	}
 	BDD_DEBUG_LOG("thread received work!\n");
 
-	if (unlikely(atomic_load(&(instance->exiting)))) {
+	if (unlikely(atomic_load(&(bdd_gv.exiting)))) {
 		pthread_mutex_unlock(&(worker->work_mutex));
-		bdd_thread_exit(instance);
+		bdd_thread_exit();
 	}
 
 	struct bdd_coac *coac = worker->conversations;
@@ -51,7 +49,7 @@ void *bdd_worker(struct bdd_worker *worker) {
 		conversation
 	);
 
-	bdd_coac_link(instance, &(coac));
+	bdd_coac_link(&(coac));
 
 	goto work;
 }
