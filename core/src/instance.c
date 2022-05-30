@@ -41,7 +41,7 @@ void bdd_stop(struct bdd_instance *instance) {
 	if (instance->accept.eventfd != -1) {
 		bdd_stop_accept(instance);
 	}
-	if (instance->serve_eventfd != -1) {
+	if (bdd_event_fd != -1) {
 		bdd_signal(instance);
 	}
 	for (unsigned short int idx = 0; idx < instance->n_workers; ++idx) {
@@ -65,7 +65,7 @@ void bdd_destroy(struct bdd_instance *instance) {
 	pthread_mutex_destroy(&(instance->n_running_threads_mutex));
 	pthread_cond_destroy(&(instance->n_running_threads_cond));
 
-	close(instance->epoll_fd);
+	close(bdd_epoll_fd);
 	free(instance->epoll_oevents);
 
 	pthread_mutex_destroy(&(instance->available_coac.mutex));
@@ -83,14 +83,14 @@ void bdd_destroy(struct bdd_instance *instance) {
 	}
 	free(instance->coac);
 
-	pthread_mutex_destroy(&(instance->conversations_to_epoll.mutex));
+	pthread_mutex_destroy(&(bdd_conversations_to_epoll_mutex));
 
 	close(instance->accept.eventfd);
 	if (instance->accept.ssl_ctx != NULL) {
 		SSL_CTX_free(instance->accept.ssl_ctx);
 	}
 
-	close(instance->serve_eventfd);
+	close(bdd_event_fd);
 
 	pthread_mutex_destroy(&(instance->available_workers.mutex));
 	pthread_cond_destroy(&(instance->available_workers.cond));
@@ -131,10 +131,8 @@ struct bdd_instance *bdd_instance_alloc(void) {
 	bdd_mutex_preinit(&(instance->n_running_threads_mutex));
 	bdd_cond_preinit(&(instance->n_running_threads_cond));
 	// epoll
-	instance->epoll_fd = -1;
 	instance->n_epoll_oevents = 0;
 	instance->epoll_oevents = NULL;
-	instance->epoll_timeout = -1;
 	// name_descs
 	instance->name_descs = NULL;
 	// server socket
@@ -147,9 +145,6 @@ struct bdd_instance *bdd_instance_alloc(void) {
 	instance->available_coac.idx = 0;
 	bdd_mutex_preinit(&(instance->available_coac.mutex));
 	bdd_cond_preinit(&(instance->available_coac.cond));
-	// linked conversations
-	bdd_mutex_preinit(&(instance->conversations_to_epoll.mutex));
-	instance->conversations_to_epoll.head = NULL;
 	// accept thread stuff
 	instance->accept.eventfd = -1;
 	for (uint8_t idx = 0; idx < 2; ++idx) {
@@ -161,9 +156,6 @@ struct bdd_instance *bdd_instance_alloc(void) {
 	instance->accept.ctx.service_instance = NULL;
 	instance->accept.ctx.protocol_name = NULL;
 	instance->accept.ctx.cstr_protocol_name = NULL;
-	instance->conversations_to_epoll.head = NULL;
-	// serve_eventfd
-	instance->serve_eventfd = -1;
 	// workers
 	bdd_mutex_preinit(&(instance->available_workers.mutex));
 	bdd_cond_preinit(&(instance->available_workers.cond));
@@ -220,14 +212,14 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		goto err;
 	}
 	// epoll
-	if ((instance->epoll_fd = epoll_create1(0)) < 0) {
+	if ((bdd_epoll_fd = epoll_create1(0)) < 0) {
 		goto err;
 	}
 	instance->n_epoll_oevents = settings.n_epoll_oevents;
 	if ((instance->epoll_oevents = malloc(sizeof(struct epoll_event) * settings.n_epoll_oevents)) == NULL) {
 		goto err;
 	}
-	instance->epoll_timeout = settings.epoll_timeout;
+	bdd_epoll_timeout = settings.epoll_timeout;
 	// name_descs
 	instance->name_descs = settings.name_descs;
 	// server socket
@@ -260,10 +252,10 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		instance->available_coac.ids[(*idx)] = (*idx);
 	}
 	// to epoll
-	if (pthread_mutex_init(&(instance->conversations_to_epoll.mutex), NULL) != 0) {
+	if (pthread_mutex_init(&(bdd_conversations_to_epoll_mutex), NULL) != 0) {
 		goto err;
 	}
-	instance->conversations_to_epoll.head = NULL;
+	bdd_conversations_to_epoll = NULL;
 	// accept
 	if ((instance->accept.eventfd = eventfd(0, EFD_NONBLOCK)) < 0) {
 		goto err;
@@ -278,7 +270,7 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 	SSL_CTX_set_alpn_select_cb(instance->accept.ssl_ctx, (void *)bdd_alpn_cb, instance);
 	SSL_CTX_set_client_hello_cb(instance->accept.ssl_ctx, (void *)bdd_hello_cb, instance);
 	// serve
-	if ((instance->serve_eventfd = eventfd(0, EFD_NONBLOCK)) < 0) {
+	if ((bdd_event_fd = eventfd(0, EFD_NONBLOCK)) < 0) {
 		goto err;
 	}
 	struct epoll_event event = {
@@ -287,7 +279,7 @@ struct bdd_instance *bdd_go(struct bdd_settings settings) {
 		    .ptr = NULL,
 		},
 	};
-	if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, instance->serve_eventfd, &(event)) != 0) {
+	if (epoll_ctl(bdd_epoll_fd, EPOLL_CTL_ADD, bdd_event_fd, &(event)) != 0) {
 		goto err;
 	}
 

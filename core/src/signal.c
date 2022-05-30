@@ -3,10 +3,11 @@
 #include <assert.h>
 
 #include "headers/instance.h"
+#include "headers/serve.h"
 
 void bdd_signal(struct bdd_instance *instance) {
 	char buf[8] = { ~0, 0, 0, 0, 0, 0, 0, ~0, };
-	int r = write(instance->serve_eventfd, (void *)buf, 8);
+	int r = write(bdd_event_fd, (void *)buf, 8);
 	assert(r == 8 || r < 0);
 	return;
 }

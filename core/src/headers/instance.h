@@ -21,15 +21,12 @@ struct bdd_instance {
 	pthread_mutex_t n_running_threads_mutex;
 	pthread_cond_t n_running_threads_cond;
 
-	int epoll_fd;
 	int n_epoll_oevents;
 	struct epoll_event *epoll_oevents;
-	int epoll_timeout;
 
 	void *name_descs;
 
 	int sv_socket;
-	int serve_eventfd;
 
 	struct {
 		pthread_mutex_t mutex;
@@ -40,11 +37,6 @@ struct bdd_instance {
 	int n_coac;
 	struct bdd_coac *coac;
 	int coac_idx;
-
-	struct {
-		pthread_mutex_t mutex;
-		struct bdd_coac *head;
-	} conversations_to_epoll;
 
 	struct {
 		int eventfd;

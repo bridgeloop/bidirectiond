@@ -24,6 +24,16 @@
 #include "headers/bdd_service.h"
 #include "headers/signal.h"
 
+static struct bdd_coac
+	*timeout_list_head = NULL,
+	*timeout_list_tail = NULL;
+struct bdd_coac *bdd_conversations_to_epoll = NULL;
+pthread_mutex_t bdd_conversations_to_epoll_mutex = PTHREAD_MUTEX_INITIALIZER;
+int
+	bdd_epoll_fd = -1,
+	bdd_epoll_timeout = -1,
+	bdd_event_fd = -1;
+
 time_t bdd_time(void) {
 	time_t ms = 0;
 	struct timeval x;
@@ -33,12 +43,10 @@ time_t bdd_time(void) {
 	return ms;
 }
 
-void bdd_coac_tl_link(
-	struct bdd_coac **head,
-	struct bdd_coac **tail,
-
-	struct bdd_coac **coac_ref
-) {
+static void bdd_coac_tl_link(struct bdd_coac **coac_ref) {
+	struct bdd_coac
+		**head = &(timeout_list_head),
+		**tail = &(timeout_list_tail);
 	struct bdd_coac *coac = *coac_ref;
 	*coac_ref = NULL;
 	coac->next = NULL;
@@ -56,12 +64,10 @@ void bdd_coac_tl_link(
 	return;
 }
 
-void bdd_coac_tl_unlink(
-	struct bdd_coac **head,
-	struct bdd_coac **tail,
-
-	struct bdd_coac *coac
-) {
+static void bdd_coac_tl_unlink(struct bdd_coac *coac) {
+	struct bdd_coac
+		**head = &(timeout_list_head),
+		**tail = &(timeout_list_tail);
 	struct bdd_coac *n;
 	if ((n = coac->prev) != NULL) {
 		n->next = coac->next;
@@ -80,9 +86,10 @@ void bdd_coac_tl_unlink(
 	}
 	coac->next = NULL;
 	coac->prev = NULL;
+	return;
 }
 
-bool bdd_conversation_epoll(struct bdd_instance *instance, struct bdd_coac *coac) {
+static bool bdd_conversation_epoll(struct bdd_coac *coac) {
 	struct bdd_conversation *conversation = &(coac->inner.conversation);
 	conversation->seen = false;
 
@@ -117,7 +124,12 @@ bool bdd_conversation_epoll(struct bdd_instance *instance, struct bdd_coac *coac
 				events |= EPOLLOUT;
 			}
 		}
-		if (io->state == BDD_IO_STATE_ESTABLISHED && io->ssl && io->shutdown_called && !(SSL_get_shutdown(io->io.ssl) & SSL_SENT_SHUTDOWN)) {
+		if (
+			io->state == BDD_IO_STATE_ESTABLISHED &&
+			io->ssl &&
+			io->shutdown_called &&
+			!(SSL_get_shutdown(io->io.ssl) & SSL_SENT_SHUTDOWN)
+		) {
 			events |= EPOLLOUT;
 		}
 
@@ -127,7 +139,7 @@ bool bdd_conversation_epoll(struct bdd_instance *instance, struct bdd_coac *coac
 				.ptr = coac,
 			},
 		};
-		if (epoll_ctl(instance->epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
+		if (epoll_ctl(bdd_epoll_fd, EPOLL_CTL_ADD, fd, &(event)) != 0) {
 			for (bdd_io_id idx2 = 0; idx2 < idx; ++idx2) {
 				io = &(conversation->io_array[idx2]);
 				if (!io->in_epoll) {
@@ -135,7 +147,7 @@ bool bdd_conversation_epoll(struct bdd_instance *instance, struct bdd_coac *coac
 				}
 				fd = bdd_io_internal_fd(io);
 
-				int r = epoll_ctl(instance->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+				int r = epoll_ctl(bdd_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
 				assert(r == 0);
 			}
 			return false;
@@ -154,7 +166,7 @@ enum bdd_handle_conversation_status {
 	bdd_handle_conversation_work,
 };
 
-enum bdd_handle_conversation_status bdd_handle_conversation(struct bdd_instance *instance, struct bdd_conversation *conversation) {
+static enum bdd_handle_conversation_status bdd_handle_conversation(struct bdd_conversation *conversation) {
 	assert(conversation->io_array != NULL);
 	bdd_io_id n_io = bdd_conversation_n_max_io(conversation);
 	struct bdd_io *io_array = conversation->io_array;
@@ -174,7 +186,7 @@ enum bdd_handle_conversation_status bdd_handle_conversation(struct bdd_instance 
 		}
 
 		int r = epoll_ctl(
-			instance->epoll_fd,
+			bdd_epoll_fd,
 			EPOLL_CTL_DEL,
 			(pollfd.fd = bdd_io_internal_fd(io)),
 			NULL
@@ -273,15 +285,8 @@ void *bdd_serve(struct bdd_instance *instance) {
 	pthread_sigmask(SIG_BLOCK, &(instance->sigmask), NULL);
 	unsigned short int next_worker_id = 0;
 	struct bdd_coac
-		*timeout_list_head = NULL,
-		*timeout_list_tail = NULL,
-
 		*conversations_to_discard = NULL,
-
-		**conversations_to_epoll = &(instance->conversations_to_epoll.head),
 		*conversations_to_epoll2 = NULL;
-
-	int epoll_timeout = instance->epoll_timeout;
 
 	epoll:;
 
@@ -289,7 +294,7 @@ void *bdd_serve(struct bdd_instance *instance) {
 
 	int n_events;
 	do {
-		n_events = epoll_wait(instance->epoll_fd, instance->epoll_oevents, instance->n_epoll_oevents, epoll_timeout);
+		n_events = epoll_wait(bdd_epoll_fd, instance->epoll_oevents, instance->n_epoll_oevents, bdd_epoll_timeout);
 	} while (n_events < 0 && errno == EINTR);
 	if (unlikely(n_events < 0)) {
 		fprintf(stderr, "bidirectiond epoll error: %i - try increasing your rlimits for open files\n", errno);
@@ -297,31 +302,26 @@ void *bdd_serve(struct bdd_instance *instance) {
 		bdd_thread_exit(instance);
 	}
 
-	pthread_mutex_lock(&(instance->conversations_to_epoll.mutex));
+	pthread_mutex_lock(&(bdd_conversations_to_epoll_mutex));
 	{
 		char g[9];
-		int r = read(instance->serve_eventfd, &(g), 9);
+		int r = read(bdd_event_fd, &(g), 9);
 		assert(r == 8 || r < 0);
 	}
 	if (unlikely(atomic_load(&(instance->exiting)))) {
 		bdd_thread_exit(instance);
 	}
-	while ((*conversations_to_epoll) != NULL) {
-		struct bdd_coac *coac = *conversations_to_epoll;
-		(*conversations_to_epoll) = coac->next;
-		if (bdd_conversation_epoll(instance, coac)) {
-			bdd_coac_tl_link(
-				&(timeout_list_head),
-				&(timeout_list_tail),
-
-				&(coac)
-			);
+	while (bdd_conversations_to_epoll != NULL) {
+		struct bdd_coac *coac = bdd_conversations_to_epoll;
+		bdd_conversations_to_epoll = coac->next;
+		if (bdd_conversation_epoll(coac)) {
+			bdd_coac_tl_link(&(coac));
 		} else {
 			bdd_conversation_deinit(instance, &(coac->inner.conversation));
 			bdd_coac_release(instance, &(coac));
 		}
 	}
-	pthread_mutex_unlock(&(instance->conversations_to_epoll.mutex));
+	pthread_mutex_unlock(&(bdd_conversations_to_epoll_mutex));
 
 	for (int idx = 0; idx < n_events; ++idx) {
 		struct epoll_event *event = &(instance->epoll_oevents[idx]);
@@ -340,14 +340,9 @@ void *bdd_serve(struct bdd_instance *instance) {
 				}
 				*seen = true;
 
-				bdd_coac_tl_unlink(
-					&(timeout_list_head),
-					&(timeout_list_tail),
+				bdd_coac_tl_unlink(coac);
 
-					coac
-				);
-
-				switch (bdd_handle_conversation(instance, conversation)) {
+				switch (bdd_handle_conversation(conversation)) {
 					case (bdd_handle_conversation_link): {
 						coac->next = conversations_to_epoll2;
 						conversations_to_epoll2 = coac;
@@ -397,14 +392,14 @@ void *bdd_serve(struct bdd_instance *instance) {
 		}
 	}
 
-	if (epoll_timeout >= 0) {
+	if (bdd_epoll_timeout >= 0) {
 		for (;;) {
 			struct bdd_coac *coac = timeout_list_head;
 			if (coac == NULL) {
 				timeout_list_tail = NULL;
 				break;
 			}
-			if (bdd_time() - coac->accessed_at < epoll_timeout) {
+			if (bdd_time() - coac->accessed_at < bdd_epoll_timeout) {
 				break;
 			}
 			timeout_list_head = coac->next;
@@ -426,13 +421,8 @@ void *bdd_serve(struct bdd_instance *instance) {
 	while (conversations_to_epoll2 != NULL) {
 		struct bdd_coac *coac = conversations_to_epoll2;
 		conversations_to_epoll2 = coac->next;
-		if (bdd_conversation_epoll(instance, coac)) {
-			bdd_coac_tl_link(
-				&(timeout_list_head),
-				&(timeout_list_tail),
-
-				&(coac)
-			);
+		if (bdd_conversation_epoll(coac)) {
+			bdd_coac_tl_link(&(coac));
 		} else {
 			bdd_conversation_deinit(instance, &(coac->inner.conversation));
 			bdd_coac_release(instance, &(coac));

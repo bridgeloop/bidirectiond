@@ -2,6 +2,7 @@
 #include <assert.h>
 
 #include "headers/instance.h"
+#include "headers/serve.h"
 #include "headers/coac.h"
 #include "headers/signal.h"
 
@@ -18,11 +19,11 @@ void bdd_coac_link(struct bdd_instance *instance, struct bdd_coac **coac_ref) {
 	struct bdd_coac *coac = (*coac_ref);
 	assert(coac != NULL);
 	(*coac_ref) = NULL;
-	pthread_mutex_lock(&(instance->conversations_to_epoll.mutex));
-	coac->next = instance->conversations_to_epoll.head;
-	instance->conversations_to_epoll.head = coac;
+	pthread_mutex_lock(&(bdd_conversations_to_epoll_mutex));
+	coac->next = bdd_conversations_to_epoll;
+	bdd_conversations_to_epoll = coac;
 	bdd_signal(instance);
-	pthread_mutex_unlock(&(instance->conversations_to_epoll.mutex));
+	pthread_mutex_unlock(&(bdd_conversations_to_epoll_mutex));
 	return;
 }
 
