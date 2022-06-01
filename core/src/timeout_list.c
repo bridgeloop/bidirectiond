@@ -1,7 +1,9 @@
+#include <assert.h>
 #include <sys/time.h>
 #include <pthread.h>
 
 #include "headers/timeout_list.h"
+#include "headers/instance.h"
 #include "headers/conversations.h"
 
 time_t bdd_time(void) {
@@ -59,6 +61,8 @@ void bdd_tl_process(struct bdd_tl *timeout_list, int epoll_fd) {
 	pthread_mutex_lock(&(timeout_list->mutex));
 	for (;;) {
 		struct bdd_conversation *conversation = timeout_list->head;
+		pthread_mutex_lock(&(conversation->mutex));
+		pthread_mutex_unlock(&(conversation->mutex));
 		if (conversation == NULL) {
 			timeout_list->tail = NULL;
 			break;

@@ -50,9 +50,9 @@ struct bdd_conversation *bdd_conversation_obtain(void) {
 		conversation = &(bdd_gv.conversations[id]);
 		conversation->state = bdd_conversation_obtained;
 		conversation->sosi.service_instance = NULL;
-		bdd_io_init(&(conversation->client));
+		bdd_io_init(conversation, &(conversation->client));
 		conversation->soac.ac.protocol_name = NULL;
-		conversation->socac.ac.cstr_protocol_name = NULL;
+		conversation->soac.ac.cstr_protocol_name = NULL;
 		conversation->associated.data = NULL;
 		conversation->associated.destructor = NULL;
 		conversation->in_discard_list = 0;
@@ -63,13 +63,13 @@ struct bdd_conversation *bdd_conversation_obtain(void) {
 void bdd_conversation_discard(struct bdd_conversation *conversation, int epoll_fd) {
 	if (epoll_fd >= 0) {
 		if (conversation->state >= bdd_conversation_accept) {
-			bdd_io_deinit(&(conversation->client), epoll_fd);
+			bdd_io_discard(&(conversation->client), epoll_fd);
 		}
 		if (conversation->state == bdd_conversation_ssl) {
-			bdd_io_deinit(&(conversation->soac.server), -1);
+			bdd_io_discard(&(conversation->soac.server), -1);
 		}
 		if (conversation->state > bdd_conversation_ssl) {
-			bdd_io_deinit(&(conversation->soac.server), epoll_fd);
+			bdd_io_discard(&(conversation->soac.server), epoll_fd);
 		}
 		bdd_set_associated(conversation, NULL, NULL);
 	}

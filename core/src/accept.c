@@ -26,7 +26,7 @@ int bdd_alpn_cb(
 	unsigned int __,
 	struct bdd_conversation *conversation
 ) {
-	const unsigned char *protocol_name = &(conversation->soac.ac.protocol_name);
+	const unsigned char *protocol_name = conversation->soac.ac.protocol_name;
 	if (protocol_name == NULL) {
 		return SSL_TLSEXT_ERR_NOACK;
 	}
@@ -215,8 +215,8 @@ enum bdd_cont bdd_ssl_shutdown_continue(struct bdd_io *io) {
 enum bdd_cont bdd_accept_continue(struct bdd_conversation *conversation, int epoll_fd) {
 	struct bdd_io *io = &(conversation->client);
 	SSL_CTX *ssl_ctx = SSL_get_SSL_CTX(io->io.ssl);
-	SSL_CTX_set_client_hello_cb(bdd_gv.accept.ssl_ctx, (void *)bdd_hello_cb, conversation);
-	SSL_CTX_set_alpn_select_cb(bdd_gv.accept.ssl_ctx, (void *)bdd_alpn_cb, conversation);
+	SSL_CTX_set_client_hello_cb(ssl_ctx, (void *)bdd_hello_cb, conversation);
+	SSL_CTX_set_alpn_select_cb(ssl_ctx, (void *)bdd_alpn_cb, conversation);
 	int r = SSL_accept(io->io.ssl);
 	if (r <= 0) {
 		r = SSL_get_error(io->io.ssl, r);
@@ -227,11 +227,11 @@ enum bdd_cont bdd_accept_continue(struct bdd_conversation *conversation, int epo
 	}
 	int fd = bdd_io_internal_fd(io);
 
-	struct bdd_service_instance *service_inst = conversation->sosi.service_inst;
+	struct bdd_service_instance *service_inst = conversation->sosi.service_instance;
 	const char *cstr_protocol_name = conversation->soac.ac.cstr_protocol_name;
 
 	conversation->sosi.service = service_inst->service;
-	bdd_io_init(&(conversation->soac.server));
+	bdd_io_init(conversation, &(conversation->soac.server));
 
 	struct sockaddr sockaddr;
 	socklen_t socklen = sizeof(struct sockaddr);
@@ -249,7 +249,7 @@ enum bdd_cont bdd_accept_continue(struct bdd_conversation *conversation, int epo
 	enum bdd_cont cont = bdd_connect_continue(conversation, epoll_fd);
 	if (cont != bdd_cont_established) {
 		io->in_epoll = 0;
-		epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+		epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
 	}
 	return cont;
 }
@@ -287,7 +287,7 @@ enum bdd_cont bdd_connect_continue(struct bdd_conversation *conversation, int ep
 		r = 0;
 	}
 	if (r == 0) {
-		return bdd_connect_discard;
+		return bdd_cont_discard;
 	}
 	const unsigned char *alpn;
 	unsigned int alpn_sz = 0;
@@ -310,14 +310,14 @@ enum bdd_cont bdd_connect_continue(struct bdd_conversation *conversation, int ep
 	if (!io->in_epoll) {
 		io->in_epoll = 1;
 		ev.data.ptr = io;
-		epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, fd, &(ev));
+		epoll_ctl(epoll_fd, EPOLL_CTL_ADD, bdd_io_internal_fd(io), &(ev));
 	}
 	if (est) {
 		io = &(conversation->client);
 		if (!io->in_epoll) {
 			io->in_epoll = 1;
 			ev.data.ptr = io;
-			epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, fd, &(ev));
+			epoll_ctl(epoll_fd, EPOLL_CTL_ADD, bdd_io_internal_fd(io), &(ev));
 		}
 	}
 	if (est) {
@@ -377,7 +377,7 @@ void *bdd_accept(void) {
 	};
 	io->in_epoll = 1;
 	epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, fd, &(ev));
-	bdd_tl_link(worker_data->timeout_list, conversation);
+	bdd_tl_link(&(worker_data->timeout_list), conversation);
 	pthread_mutex_lock(&(conversation->mutex));
 
 	worker_id = (worker_id + 1) % bdd_gv.n_workers;

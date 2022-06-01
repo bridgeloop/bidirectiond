@@ -9,9 +9,7 @@
 
 #include "headers/instance.h"
 #include "headers/conversations.h"
-#include "headers/coac.h"
 #include "headers/bdd_settings.h"
-#include "headers/workers.h"
 #include "headers/signal.h"
 #include "headers/serve.h"
 

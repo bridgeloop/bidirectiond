@@ -1,11 +1,6 @@
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-
 #include <assert.h>
 #include <errno.h>
 #include <signal.h>
-#include <poll.h>
 #include <sys/epoll.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -13,6 +8,7 @@
 #include <stdbool.h>
 
 #include "headers/instance.h"
+#include "headers/accept.h"
 #include "headers/timeout_list.h"
 #include "headers/debug_log.h"
 #include "headers/conversations.h"
@@ -27,14 +23,14 @@ enum handle_io_status {
 	handle_io_hup,
 	handle_io_lt,
 };
-static void handle_io(struct bdd_io *io, uint32_t revents) {
+static enum handle_io_status handle_io(struct bdd_io *io, uint32_t revents) {
 	struct bdd_conversation *conversation = io->conversation;
 	unsigned char bdd_revents = 0;
 
 	if (revents & EPOLLERR) {
 		io->state = BDD_IO_ERR;
 	} else if (io->state == BDD_IO_SSL_SHUTTING) {
-		if (bdd_ssl_shutdown_continue(io) == bdd_ssl_shutdown_err) {
+		if (bdd_ssl_shutdown_continue(io) == bdd_cont_discard) {
 			io->state = BDD_IO_ERR;
 		}
 	}
@@ -67,18 +63,20 @@ static void discard_link(struct bdd_conversation **list, struct bdd_conversation
 	return;
 }
 
-void *bdd_serve(void) {
+void *bdd_serve(struct bdd_worker_data *worker_data) {
 	pthread_sigmask(SIG_BLOCK, &(bdd_gv.sigmask), NULL);
 	unsigned short int next_worker_id = 0;
 	struct bdd_conversation *discard_list = NULL;
-	struct bdd_tl *timeout_list = &(thread_data->bdd_tl);
+	struct bdd_tl *timeout_list = &(worker_data->timeout_list);
+	int epoll_fd = worker_data->epoll_fd;
+	struct epoll_event *events = worker_data->events;
 	epoll:;
 
 	BDD_DEBUG_LOG("polling\n");
 
 	int n_events;
 	do {
-		n_events = epoll_wait(bdd_gv.epoll_fd, bdd_gv.epoll_oevents, bdd_gv.n_epoll_oevents, bdd_gv.epoll_timeout);
+		n_events = epoll_wait(epoll_fd, events, bdd_gv.n_epoll_oevents, bdd_gv.epoll_timeout);
 	} while (n_events < 0 && errno == EINTR);
 	if (unlikely(n_events < 0)) {
 		fprintf(stderr, "bidirectiond epoll error: %i - try increasing your rlimits for open files\n", errno);
@@ -95,7 +93,7 @@ void *bdd_serve(void) {
 	}
 
 	for (int idx = 0; idx < n_events; ++idx) {
-		struct epoll_event *event = &(bdd_gv.epoll_oevents[idx]);
+		struct epoll_event *event = &(events[idx]);
 		struct bdd_io *io = event->data.ptr;
 		struct bdd_conversation *conversation = io->conversation;
 		pthread_mutex_lock(&(conversation->mutex));
@@ -104,7 +102,7 @@ void *bdd_serve(void) {
 			continue;
 		}
 		bdd_tl_unlink(
-			&(timeout_list),
+			timeout_list,
 			conversation
 		);
 		enum bdd_cont (*function)(struct bdd_conversation *, int) = &(bdd_connect_continue);
@@ -146,7 +144,7 @@ void *bdd_serve(void) {
 					}
 					case (handle_io_lt): {
 						bdd_tl_link(
-							&(timeout_list),
+							timeout_list,
 							conversation
 						);
 						break;
@@ -157,13 +155,13 @@ void *bdd_serve(void) {
 	}
 
 	if (bdd_gv.epoll_timeout >= 0) {
-		bdd_tl_process(&(timeout_list), epoll_fd);
+		bdd_tl_process(timeout_list, epoll_fd);
 	}
 
 	while (discard_list != NULL) {
 		struct bdd_conversation *conversation = discard_list;
 		discard_list = conversation->next;
-		bdd_conversation_discard(conversation);
+		bdd_conversation_discard(conversation, epoll_fd);
 	}
 
 	goto epoll;

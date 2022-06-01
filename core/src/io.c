@@ -10,6 +10,7 @@
 #include <errno.h>
 
 #include "headers/instance.h"
+#include "headers/accept.h"
 #include "headers/conversations.h"
 #include "headers/bdd_service.h"
 #include "headers/bdd_io.h"
@@ -32,11 +33,15 @@ struct bdd_io *bdd_io(struct bdd_conversation *conversation, uint8_t io_id) {
 		}
 		case (1): {
 			assert(conversation->state == bdd_conversation_established);
-			return &(conversation->soac.service);
+			return &(conversation->soac.server);
 		}
 	}
 	abort();
 	return NULL;
+}
+struct bdd_io *bdd_io_opposite(struct bdd_conversation *conversation, struct bdd_io *io) {
+	uint8_t io_id = bdd_io_id(conversation, io);
+	return bdd_io(conversation, io_id ^ 1);
 }
 
 // returns the number of bytes read, returns -2 on rdhup, returns -1 on err
@@ -79,7 +84,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 			) {
 				return 0;
 			}
-			bdd_io_internal_break(conversation, io);
+			io->state = BDD_IO_ERR;
 			return -1;
 		}
 	} else {
@@ -91,11 +96,11 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				return 0;
 			}
-			bdd_io_internal_break(conversation, io);
+			io->state = BDD_IO_ERR;
 			return -1;
 		}
 		if (r == 0) {
-			io->eof = 1;
+			io->rdhup = 1;
 			return -2;
 		}
 	}
@@ -115,7 +120,6 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 		abort();
 		return -1;
 	}
-	struct bdd_io *io = &(conversation->io_array[io_id]);
 	if (io->state != BDD_IO_RW) {
 		fputs("programming error: bdd_write called with an io_id which is in a state not equal to BDD_IO_RW\n", stderr);
 		abort();
@@ -143,7 +147,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 			) {
 				return 0;
 			}
-			bdd_io_internal_break_established(conversation, io);
+			io->state = BDD_IO_RO;
 			return -1;
 		}
 	} else {
@@ -155,33 +159,14 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				return 0;
 			}
-			bdd_io_internal_break_established(conversation, io);
+			io->state = BDD_IO_RO;
 			return -1;
 		}
 	}
 	return r;
 }
 
-enum bdd_cont bdd_ssl_shutdown_continue(struct bdd_io *io) {
-	int fd = bdd_io_internal_fd(io);
-	int r = SSL_shutdown(io->io.ssl);
-	if (r < 0) {
-		r = SSL_get_error(io->io.ssl, r);
-		if (r == SSL_ERROR_WANT_WRITE) {
-			return bdd_cont_inprogress;
-		}
-		if (r == SSL_ERROR_WANT_READ) {
-			// hopefully impossible?
-			// https://git.tcp.direct/aiden/bidirectiond/issues/33#issuecomment-363
-			abort();
-		}
-		return bdd_cont_discard;
-	}
-	io->wrhup = 1;
-	return bdd_cont_established;
-}
-
-bool bdd_io_shutdown(struct bdd_conversation *conversation, bdd_io_id io_id) {
+bool bdd_io_shutdown(struct bdd_conversation *conversation, uint8_t io_id) {
 	struct bdd_io *io = bdd_io(conversation, io_id);
 	if (io == NULL) {
 		fputs("programming error: bdd_io_shutdown called with invalid arguments\n", stderr);
@@ -196,22 +181,21 @@ bool bdd_io_shutdown(struct bdd_conversation *conversation, bdd_io_id io_id) {
 	io->state = BDD_IO_RO;
 
 	if (io->ssl) {
-		switch (bdd_io_internal_shutdown_continue(io)) {
-			case (bdd_shutdown_err): {
+		switch (bdd_ssl_shutdown_continue(io)) {
+			case (bdd_cont_discard): {
 				io->state = BDD_IO_ERR;
 				return false;
 			}
-			case (bdd_shutdown_inprogress): {
+			case (bdd_cont_inprogress): {
 				io->state = BDD_IO_SSL_SHUTTING;
 				return true;
 			}
-			case (bdd_shutdown_success): {
-				io->state = BDD_IO_RO;
+			case (bdd_cont_established): {
 				return true;
 			}
 		}
 	} else {
-		if (shutdown(bdd_internal_io_fd(io), SHUT_WR) == 0) {
+		if (shutdown(bdd_io_internal_fd(io), SHUT_WR) == 0) {
 			io->wrhup = 1;
 			return true;
 		}
@@ -219,12 +203,12 @@ bool bdd_io_shutdown(struct bdd_conversation *conversation, bdd_io_id io_id) {
 	}
 }
 
-void bdd_io_destroy(struct bdd_io *io, int epoll_fd) {
+void bdd_io_discard(struct bdd_io *io, int epoll_fd) {
 	if (!io->discarded) {
 		if (epoll_fd < 0) {
 			goto ssl;
 		}
-		int fd = bdd_io_fd(io);
+		int fd = bdd_io_internal_fd(io);
 		if (fd < 0) {
 			io->discarded = 1;
 			return;
@@ -249,7 +233,9 @@ void bdd_io_destroy(struct bdd_io *io, int epoll_fd) {
 	}
 	return;
 }
-void bdd_io_init(struct bdd_io *io) {
+void bdd_io_init(struct bdd_conversation *conversation, struct bdd_io *io) {
+	io->conversation = conversation;
+
 	io->state = BDD_IO_RW;
 
 	io->rdhup = 0;
@@ -283,7 +269,7 @@ bool bdd_prep_ssl(struct bdd_conversation *conversation, char *ssl_name, char *a
 		return false;
 	}
 	struct bdd_io *io = &(conversation->soac.server);
-	SSL *ssl = SSL_new(bdd_gv.sv_ssl_ctx);
+	SSL *ssl = SSL_new(bdd_gv.cl_ssl_ctx);
 	if (ssl == NULL) {
 		return false;
 	}
@@ -330,7 +316,7 @@ bool bdd_prep_ssl(struct bdd_conversation *conversation, char *ssl_name, char *a
 	return false;
 }
 
-bool bdd_connect(struct bdd_conversation *conversation, struct sockaddr *sockaddr, socklen_t *addrlen) {
+bool bdd_connect(struct bdd_conversation *conversation, int address_family, struct sockaddr *sockaddr, socklen_t addrlen) {
 	if (conversation->state != bdd_conversation_accept && conversation->state != bdd_conversation_ssl) {
 		abort();
 		return false;
@@ -355,7 +341,7 @@ bool bdd_connect(struct bdd_conversation *conversation, struct sockaddr *sockadd
 			goto err;
 		}
 	} else {
-		bdd_io_apply_fd(io, fd);
+		bdd_io_apply(io, fd);
 	}
 	return true;
 
@@ -366,7 +352,7 @@ bool bdd_connect(struct bdd_conversation *conversation, struct sockaddr *sockadd
 	if (fd >= 0) {
 		close(fd);
 	}
-	bdd_io_init(io);
+	bdd_io_init(conversation, io);
 	conversation->state = bdd_conversation_accept;
 	return false;
 }

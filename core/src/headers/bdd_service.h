@@ -8,7 +8,7 @@
 struct bdd_conversation;
 struct bdd_name_descs;
 struct bdd_service {
-	void (*handle_events)(struct bdd_conversation *conversation);
+	void (*handle_events)(struct bdd_conversation *conversation, uint8_t io_id, uint8_t events);
 
 	bool (*conversation_init)(
 		struct bdd_conversation *conversation,

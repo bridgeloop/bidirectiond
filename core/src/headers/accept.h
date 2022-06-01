@@ -3,6 +3,9 @@
 
 #include <hashmap/hashmap.h>
 
+struct bdd_conversation;
+struct bdd_io;
+
 enum bdd_cont {
 	bdd_cont_discard,
 	bdd_cont_inprogress,
@@ -19,5 +22,8 @@ int bdd_alpn_cb(
 );
 int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_conversation *conversation);
 void *bdd_accept(void);
+enum bdd_cont bdd_connect_continue(struct bdd_conversation *conversation, int epoll_fd);
+enum bdd_cont bdd_accept_continue(struct bdd_conversation *conversation, int epoll_fd);
+enum bdd_cont bdd_ssl_shutdown_continue(struct bdd_io *io);
 
 #endif

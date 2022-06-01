@@ -68,14 +68,16 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	const void *instance_info
 );
 
-void bdd_conversation_deinit(struct bdd_conversation *conversation);
-
-void bdd_io_internal_set_state(struct bdd_conversation *conversation, struct bdd_io *io, uint8_t state);
 int bdd_io_internal_fd(struct bdd_io *io);
-bool bdd_io_internal_has_epoll_state(struct bdd_conversation *conversation, struct bdd_io *io);
-void bdd_io_internal_break(struct bdd_conversation *conversation, struct bdd_io *io);
-void bdd_io_internal_break_established(struct bdd_conversation *conversation, struct bdd_io *io);
-enum bdd_io_connect_status bdd_io_internal_connect_continue(struct bdd_conversation *conversation, struct bdd_io *io);
-enum bdd_io_shutdown_status bdd_io_internal_shutdown_continue(struct bdd_io *io);
+struct bdd_conversation *bdd_conversation_obtain(void);
+void bdd_conversation_discard(struct bdd_conversation *conversation, int epoll_fd);
+void bdd_io_init(struct bdd_conversation *conversation, struct bdd_io *io);
+void bdd_io_discard(struct bdd_io *io, int epoll_fd);
+
+uint8_t bdd_io_id(struct bdd_conversation *conversation, struct bdd_io *io);
+struct bdd_io *bdd_io(struct bdd_conversation *conversation, uint8_t io_id);
+struct bdd_io *bdd_io_opposite(struct bdd_conversation *conversation, struct bdd_io *io);
+
+void bdd_io_apply_ssl(struct bdd_io *io, SSL *ssl);
 
 #endif
