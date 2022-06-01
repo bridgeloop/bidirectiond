@@ -4,32 +4,25 @@
 #include <openssl/ssl.h>
 #include <stdint.h>
 
-#define BDD_IO_STATE_UNUSED 0
-#define BDD_IO_STATE_CREATED 1
-#define BDD_IO_STATE_CONNECT 2
-#define BDD_IO_STATE_CONNECTING 3
-#define BDD_IO_STATE_SSL_CONNECTING 4
-#define BDD_IO_STATE_ESTABLISHED 5
-#define BDD_IO_STATE_BROKEN 6
-#define BDD_IO_STATE_ESTABLISHED_BROKEN 7
+#define BDD_IO_RW 0
+#define BDD_IO_SSL_SHUTTING 1
+#define BDD_IO_RO 2
+#define BDD_IO_ERR 3
 
 struct bdd_io {
-	uint16_t
-		state : 3,
-		shutdown_called : 1,
+	struct bdd_conversation *conversation;
 
-		tcp : 1,
-		tcp_hup : 1,
+	uint8_t
+		state : 2,
+
+		rdhup : 1,
+		wrhup : 1,
+
 		ssl : 1,
 		ssl_alpn : 1,
-		ssl_shutdown_fully : 1,
 
-		in_epoll : 1,
-
-		eof : 1,
-
-		listen_read : 1, // EPOLLIN|EPOLLRDHUP
-		listen_write : 1; // EPOLLOUT
+		discarded : 1,
+		in_epoll : 1;
 
 	union {
 		int fd;

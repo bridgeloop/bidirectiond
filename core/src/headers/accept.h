@@ -3,12 +3,10 @@
 
 #include <hashmap/hashmap.h>
 
-struct bdd_service_instance;
-struct bdd_accept_ctx {
-	struct bdd_service_instance *service_instance;
-	const unsigned char *protocol_name;
-	const char *cstr_protocol_name;
-	//SSL *ssl;
+enum bdd_cont {
+	bdd_cont_discard,
+	bdd_cont_inprogress,
+	bdd_cont_established,
 };
 
 int bdd_alpn_cb(
@@ -17,9 +15,9 @@ int bdd_alpn_cb(
 	unsigned char *outlen,
 	const unsigned char *_,
 	unsigned int __,
-	struct bdd_accept_ctx *ctx
+	struct bdd_conversation *conversation
 );
-int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx);
+int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_conversation *conversation);
 void *bdd_accept(void);
 
 #endif

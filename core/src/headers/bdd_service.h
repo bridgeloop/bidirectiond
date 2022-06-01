@@ -5,7 +5,6 @@
 #include <stdbool.h>
 #include <sys/socket.h>
 
-#include "bdd_io_id.h"
 struct bdd_conversation;
 struct bdd_name_descs;
 struct bdd_service {
@@ -15,7 +14,7 @@ struct bdd_service {
 		struct bdd_conversation *conversation,
 		const char *protocol_name,
 		const void *instance_info,
-		bdd_io_id client_id,
+		uint8_t client_id,
 		struct sockaddr client_sockaddr
 	);
 
@@ -29,8 +28,6 @@ struct bdd_service {
 	const char *const *const supported_protocols;
 	const char *const *const supported_arguments;
 	const char *const arguments_help;
-
-	bdd_io_id n_max_io;
 };
 
 #endif

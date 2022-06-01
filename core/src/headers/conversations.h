@@ -7,12 +7,8 @@
 #include <time.h>
 #include <sys/socket.h>
 
-#include "bdd_io_id.h"
-#include "bdd_io_connect.h"
-#include "bdd_io_shutdown.h"
-#include "bdd_conversation_n_max_io.h"
+#include "bdd_io.h"
 
-struct bdd_coac;
 struct bdd_service;
 struct bdd_io;
 
@@ -21,17 +17,41 @@ struct bdd_associated {
 	void (*destructor)(void *data);
 };
 
-struct bdd_conversation {
-	// set by bdd_conversation_init
-	const struct bdd_service *service;
+enum bdd_conversation_state {
+	bdd_conversation_obtained,
+	bdd_conversation_accept,
+	bdd_conversation_ssl,
+	bdd_conversation_connect,
+	bdd_conversation_ssl_connect,
+	bdd_conversation_established,
+};
 
-	// set by bdd_conversation_init, destroyed by bdd_conversation_deinit
-	struct bdd_io *io_array;
-	// technically set by a service, destroyed by a service or bdd_conversation_deinit
+struct bdd_conversation {
+	enum bdd_conversation_state state;
+
+	struct bdd_conversation *next;
+	struct bdd_conversation *prev;
+	time_t accessed_at;
+
+	pthread_mutex_t mutex;
+
+	union {
+		const struct bdd_service *service;
+		struct bdd_service_instance *service_instance;
+	} sosi;
+
+	struct bdd_io client;
+	union {
+		struct bdd_io server;
+		struct {
+			const unsigned char *protocol_name;
+			const char *cstr_protocol_name;
+		} ac;
+	} soac;
+
 	struct bdd_associated associated;
 
-	bool seen; // bdd_serve
-	bdd_io_id n_connecting; // amount of connecting IOs - set by bdd_io_connect, and bdd_serve
+	bool in_discard_list; // bdd_serve
 };
 
 enum bdd_conversation_init_status {

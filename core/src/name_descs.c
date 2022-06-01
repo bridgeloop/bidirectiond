@@ -7,7 +7,6 @@
 #include "headers/name_descs.h"
 #include "headers/bdd_name_descs.h"
 #include "headers/bdd_service.h"
-#include "headers/bdd_ssl_ctx_skel.h"
 
 // struct bdd_name_desc
 struct bdd_name_desc *bdd_name_desc_alloc(void) {

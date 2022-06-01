@@ -246,8 +246,6 @@ bool bdd_go(struct bdd_settings settings) {
 	if ((bdd_gv.accept.ssl_ctx = bdd_ssl_ctx_skel()) == NULL) {
 		goto err;
 	}
-	SSL_CTX_set_alpn_select_cb(bdd_gv.accept.ssl_ctx, (void *)bdd_alpn_cb, &(bdd_gv.accept.ctx));
-	SSL_CTX_set_client_hello_cb(bdd_gv.accept.ssl_ctx, (void *)bdd_hello_cb, &(bdd_gv.accept.ctx));
 	// serve
 	if ((bdd_gv.serve_eventfd = eventfd(0, EFD_NONBLOCK)) < 0) {
 		goto err;

@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <sys/epoll.h>
 #include <openssl/ssl.h>
 #include <poll.h>
 #include <assert.h>
@@ -13,7 +14,6 @@
 #include "headers/unlikely.h"
 #include "headers/debug_log.h"
 #include "headers/conversations.h"
-#include "headers/coac.h"
 #include "headers/name_descs.h"
 #include "headers/bdd_service.h"
 #include "headers/signal.h"
@@ -24,17 +24,18 @@ int bdd_alpn_cb(
 	unsigned char *outlen,
 	const unsigned char *_,
 	unsigned int __,
-	struct bdd_accept_ctx *ctx
+	struct bdd_conversation *conversation
 ) {
-	if (ctx->protocol_name == NULL) {
+	const unsigned char *protocol_name = &(conversation->soac.ac.protocol_name);
+	if (protocol_name == NULL) {
 		return SSL_TLSEXT_ERR_NOACK;
 	}
-	*out = ctx->protocol_name + 1;
-	*outlen = ctx->protocol_name[0];
+	*out = protocol_name + 1;
+	*outlen = protocol_name[0];
 	return SSL_TLSEXT_ERR_OK;
 }
 
-int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
+int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_conversation *conversation) {
 	struct hashmap *name_descs = bdd_gv.name_descs;
 	struct hashmap_key key = HASHMAP_KEY_INITIALIZER;
 	int r = SSL_CLIENT_HELLO_ERROR;
@@ -123,8 +124,8 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 							if (alpn_len == 0 || alpn_sz - 1 < alpn_len) {
 								return SSL_CLIENT_HELLO_ERROR;
 							}
-							assert(ctx->protocol_name == NULL);
-							assert(ctx->cstr_protocol_name == NULL);
+							assert(conversation->soac.ac.protocol_name == NULL);
+							assert(conversation->soac.ac.cstr_protocol_name == NULL);
 						}
 						// skip the for loop
 						goto alpn_find_iter;
@@ -148,8 +149,8 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 								) == 0
 							) {
 								alpn_sz = alpn_idx; // includes the length byte
-								ctx->protocol_name = &(alpn[alpn_idx]);
-								ctx->cstr_protocol_name = sp[sp_idx];
+								conversation->soac.ac.protocol_name = &(alpn[alpn_idx]);
+								conversation->soac.ac.cstr_protocol_name = sp[sp_idx];
 								found = inst;
 								// the rest of the service's implemented protocols
 								// cannot be more preferred by the client
@@ -169,7 +170,7 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 				if (found != NULL) {
 					skip_alpn:;
 					assert(found->service != NULL);
-					ctx->service_instance = found;
+					conversation->sosi.service_instance = found;
 					found_req |= 0b10;
 				}
 			}
@@ -192,8 +193,142 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_accept_ctx *ctx) {
 	return r;
 }
 
+enum bdd_cont bdd_ssl_shutdown_continue(struct bdd_io *io) {
+	int fd = bdd_io_internal_fd(io);
+	int r = SSL_shutdown(io->io.ssl);
+	if (r < 0) {
+		r = SSL_get_error(io->io.ssl, r);
+		if (r == SSL_ERROR_WANT_WRITE) {
+			return bdd_cont_inprogress;
+		}
+		if (r == SSL_ERROR_WANT_READ) {
+			// hopefully impossible?
+			// https://git.tcp.direct/aiden/bidirectiond/issues/33#issuecomment-363
+			abort();
+		}
+		return bdd_cont_discard;
+	}
+	io->wrhup = 1;
+	return bdd_cont_established;
+}
+
+enum bdd_cont bdd_accept_continue(struct bdd_conversation *conversation, int epoll_fd) {
+	struct bdd_io *io = &(conversation->client);
+	SSL_CTX *ssl_ctx = SSL_get_SSL_CTX(io->io.ssl);
+	SSL_CTX_set_client_hello_cb(bdd_gv.accept.ssl_ctx, (void *)bdd_hello_cb, conversation);
+	SSL_CTX_set_alpn_select_cb(bdd_gv.accept.ssl_ctx, (void *)bdd_alpn_cb, conversation);
+	int r = SSL_accept(io->io.ssl);
+	if (r <= 0) {
+		r = SSL_get_error(io->io.ssl, r);
+		if (r == SSL_ERROR_WANT_WRITE || r == SSL_ERROR_WANT_READ) {
+			return bdd_cont_inprogress;
+		}
+		return bdd_cont_discard;
+	}
+	int fd = bdd_io_internal_fd(io);
+
+	struct bdd_service_instance *service_inst = conversation->sosi.service_inst;
+	const char *cstr_protocol_name = conversation->soac.ac.cstr_protocol_name;
+
+	conversation->sosi.service = service_inst->service;
+	bdd_io_init(&(conversation->soac.server));
+
+	struct sockaddr sockaddr;
+	socklen_t socklen = sizeof(struct sockaddr);
+	getsockname(fd, &(sockaddr), &(socklen));
+
+	if (!service_inst->service->conversation_init(conversation, cstr_protocol_name, service_inst->instance_info, 0, sockaddr)) {
+		return bdd_cont_discard;
+	}
+
+	if (conversation->state != bdd_conversation_connect) {
+		fputs("programming error: conversation_init did not connect to anything\n", stderr);
+		return bdd_cont_discard;
+	}
+
+	enum bdd_cont cont = bdd_connect_continue(conversation, epoll_fd);
+	if (cont != bdd_cont_established) {
+		io->in_epoll = 0;
+		epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+	}
+	return cont;
+}
+enum bdd_cont bdd_connect_continue(struct bdd_conversation *conversation, int epoll_fd) {
+	bool est = true;
+	if (conversation->state != bdd_conversation_connect && conversation->state != bdd_conversation_ssl_connect) {
+		return bdd_cont_discard;
+	}
+	struct bdd_io *io = &(conversation->soac.server);
+	if (conversation->state == bdd_conversation_connect) {
+		struct pollfd pollfd = {
+			.fd = bdd_io_internal_fd(io),
+			.events = POLLOUT,
+		};
+		poll(&(pollfd), 1, 0);
+		if (pollfd.revents & POLLERR) {
+			return bdd_cont_discard;
+		}
+		if (!(pollfd.revents & POLLOUT)) {
+			goto inprogress;
+		}
+		if (io->ssl) {
+			conversation->state = bdd_conversation_ssl_connect;
+		} else {
+			goto established;
+		}
+	}
+	assert(conversation->state == bdd_conversation_ssl_connect);
+	int r = SSL_connect(io->io.ssl);
+	if (r == -1) {
+		r = SSL_get_error(io->io.ssl, r);
+		if (r == SSL_ERROR_WANT_WRITE || r == SSL_ERROR_WANT_READ) {
+			goto inprogress;
+		}
+		r = 0;
+	}
+	if (r == 0) {
+		return bdd_connect_discard;
+	}
+	const unsigned char *alpn;
+	unsigned int alpn_sz = 0;
+	if (io->ssl_alpn) {
+		SSL_get0_alpn_selected(io->io.ssl, &(alpn), &(alpn_sz));
+		if (alpn == NULL) {
+			return bdd_cont_discard;
+		}
+	}
+
+	goto established;
+
+	inprogress:;
+	est = false;
+	established:;
+	conversation->state = bdd_conversation_established;
+	struct epoll_event ev = {
+		.events = EPOLLIN | EPOLLOUT | EPOLLET,
+	};
+	if (!io->in_epoll) {
+		io->in_epoll = 1;
+		ev.data.ptr = io;
+		epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, fd, &(ev));
+	}
+	if (est) {
+		io = &(conversation->client);
+		if (!io->in_epoll) {
+			io->in_epoll = 1;
+			ev.data.ptr = io;
+			epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, fd, &(ev));
+		}
+	}
+	if (est) {
+		return bdd_cont_established;
+	}
+	return bdd_cont_inprogress;
+}
+
 void *bdd_accept(void) {
-	struct bdd_accept_ctx *ctx = &(bdd_gv.accept.ctx);
+	size_t worker_id = 0;
+
 	poll:;
 	while (poll(bdd_gv.accept.pollfds, 2, -1) < 0) {
 		if (errno != EINTR) {
@@ -202,86 +337,60 @@ void *bdd_accept(void) {
 		}
 	}
 
-	struct bdd_coac *coac = bdd_coac_obtain();
-	if (coac == NULL) {
+	struct bdd_conversation *conversation = bdd_conversation_obtain();
+	if (conversation == NULL) {
 		bdd_thread_exit();
 	}
-	coac->inner_type = bdd_coac_conversation;
-	struct bdd_conversation *conversation = &(coac->inner.conversation);
-	SSL *client_ssl = NULL;
-	ctx->service_instance = NULL;
-	ctx->protocol_name = NULL;
-	ctx->cstr_protocol_name = NULL;
-	int cl_socket = -1;
+	struct bdd_worker_data *worker_data = &(bdd_gv.workers[worker_id]);
+	SSL *ssl = SSL_new(worker_data->ssl_ctx);
+	int fd = -1;
 
-	if ((client_ssl = SSL_new(bdd_gv.accept.ssl_ctx)) == NULL) {
+	if (ssl == NULL) {
 		goto err;
 	}
 
 	// accept
 	BDD_DEBUG_LOG("accepting tcp connection\n");
-	struct sockaddr cl_sockaddr;
-	socklen_t sockaddr_sz = sizeof(struct sockaddr);
 	do {
-		cl_socket = accept(bdd_gv.sv_socket, &(cl_sockaddr), &(sockaddr_sz));
-	} while (cl_socket < 0 && errno == EINTR);
-	if (cl_socket < 0) {
+		fd = accept(bdd_gv.sv_socket, NULL, NULL);
+	} while (fd < 0 && errno == EINTR);
+	if (fd < 0) {
 		BDD_DEBUG_LOG("rejected tcp connection\n");
 		goto err;
 	}
 	BDD_DEBUG_LOG("accepted tcp connection\n");
+	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
 
-	// to-do: non-blocking here
-	int flags = fcntl(cl_socket, F_GETFL, 0);
-	fcntl(cl_socket, F_SETFL, flags & ~(O_NONBLOCK));
-
-	if (!SSL_set_fd(client_ssl, cl_socket)) {
+	if (!SSL_set_fd(ssl, fd)) {
 		goto err;
 	}
 
-	if (SSL_accept(client_ssl) <= 0) {
-		BDD_DEBUG_LOG("rejected tls setup\n");
-		goto err;
-	}
+	struct bdd_io *io = &(conversation->client);
+	bdd_io_apply_ssl(io, ssl);
 
-	fcntl(cl_socket, F_SETFL, flags | O_NONBLOCK);
+	pthread_mutex_lock(&(conversation->mutex));
+	struct epoll_event ev = {
+		.events = EPOLLIN | EPOLLOUT | EPOLLET,
+		.data = {
+			.ptr = io,
+		},
+	};
+	io->in_epoll = 1;
+	epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, fd, &(ev));
+	bdd_tl_link(worker_data->timeout_list, conversation);
+	pthread_mutex_lock(&(conversation->mutex));
 
-	struct bdd_service_instance *service_inst = ctx->service_instance;
-	assert(service_inst != NULL);
-
-	switch (bdd_conversation_init(
-		conversation,
-		&(client_ssl),
-		cl_sockaddr,
-		service_inst->service,
-		ctx->cstr_protocol_name,
-		service_inst->instance_info
-	)) {
-		case (bdd_conversation_init_failed): {
-			goto err;
-		}
-		case (bdd_conversation_init_success): {
-			bdd_coac_link(&(coac));
-			break;
-		}
-		case (bdd_conversation_init_failed_wants_deinit): {
-			bdd_conversation_deinit(conversation);
-			goto err;
-		}
-	}
+	worker_id = (worker_id + 1) % bdd_gv.n_workers;
 
 	goto poll;
 
 	err:;
-
 	BDD_DEBUG_LOG("failed to accept connection\n");
+	if (ssl != NULL) {
+		SSL_free(ssl);
+	}
+	close(fd);
+	bdd_conversation_discard(conversation, -1);
 
-	if (client_ssl != NULL) {
-		SSL_free(client_ssl);
-	}
-	if (cl_socket >= 0) {
-		close(cl_socket);
-	}
-	bdd_coac_release(&(coac));
 	goto poll;
 }
