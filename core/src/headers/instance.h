@@ -30,7 +30,6 @@ struct bdd_gv {
 
 	void *name_descs;
 
-	int sv_socket;
 	int eventfd;
 
 	int n_conversations;
@@ -38,14 +37,9 @@ struct bdd_gv {
 	int conversations_idx;
 	struct {
 		pthread_mutex_t mutex;
-		pthread_cond_t cond;
 		int *ids;
 		int idx;
 	} available_conversations;
-
-	struct {
-		struct pollfd pollfds[2];
-	} accept;
 
 	unsigned short int n_workers;
 	struct bdd_worker_data *worker;

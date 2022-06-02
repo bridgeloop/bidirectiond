@@ -90,9 +90,12 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 	for (int idx = 0; idx < n_events; ++idx) {
 		struct epoll_event *event = &(events[idx]);
 		struct bdd_io *io = event->data.ptr;
+		if (io == NULL) {
+	printf("%p\n", worker_data);
+			bdd_accept(worker_data);
+			continue;
+		}
 		struct bdd_conversation *conversation = io->conversation;
-		pthread_mutex_lock(&(conversation->mutex));
-		pthread_mutex_unlock(&(conversation->mutex));
 		if (conversation->in_discard_list) {
 			continue;
 		}

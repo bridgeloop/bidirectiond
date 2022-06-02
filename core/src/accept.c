@@ -330,21 +330,10 @@ enum bdd_cont bdd_connect_continue(struct bdd_conversation *conversation, int ep
 	return bdd_cont_inprogress;
 }
 
-void *bdd_accept(void) {
-	size_t worker_id = 0;
-	struct bdd_worker_data *worker_data = bdd_gv_worker(worker_id);
-	poll:;
-
-	while (poll(bdd_gv.accept.pollfds, 2, -1) < 0) {
-		if (errno != EINTR) {
-			bdd_stop();
-			break;
-		}
-	}
-
+void bdd_accept(struct bdd_worker_data *worker_data) {
 	struct bdd_conversation *conversation = bdd_conversation_obtain();
 	if (conversation == NULL) {
-		bdd_thread_exit();
+		return;
 	}
 	SSL *ssl = SSL_new(worker_data->ssl_ctx);
 	if (ssl == NULL) {
@@ -356,7 +345,7 @@ void *bdd_accept(void) {
 	// accept
 	BDD_DEBUG_LOG("accepting tcp connection\n");
 	do {
-		fd = accept(bdd_gv.sv_socket, NULL, NULL);
+		fd = accept(worker_data->serve_fd, NULL, NULL);
 	} while (fd < 0 && errno == EINTR);
 	if (fd < 0) {
 		BDD_DEBUG_LOG("rejected tcp connection\n");
@@ -374,7 +363,6 @@ void *bdd_accept(void) {
 	bdd_io_apply_ssl(io, ssl);
 	ssl = NULL;
 
-	pthread_mutex_lock(&(conversation->mutex));
 	struct epoll_event ev = {
 		.events = EPOLLIN | EPOLLOUT | EPOLLET,
 		.data = {
@@ -382,20 +370,12 @@ void *bdd_accept(void) {
 		},
 	};
 	io->in_epoll = 1;
-	bool err = epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, fd, &(ev)) != 0;
-	if (!err) {
-		bdd_tl_link(&(worker_data->timeout_list), conversation);
-	}
-	pthread_mutex_unlock(&(conversation->mutex));
-
-	if (err) {
+	if (epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, fd, &(ev)) != 0) {
 		goto err;
 	}
+	bdd_tl_link(&(worker_data->timeout_list), conversation);
 
-	worker_id = (worker_id + 1) % bdd_gv.n_workers;
-	worker_data = bdd_gv_worker(worker_id);
-
-	goto poll;
+	return;
 
 	err:;
 	BDD_DEBUG_LOG("failed to accept connection\n");
@@ -405,5 +385,5 @@ void *bdd_accept(void) {
 	}
 	close(fd);
 
-	goto poll;
+	return;
 }

@@ -33,7 +33,7 @@ struct bdd_settings settings = {
 	.n_epoll_oevents = 0x200,
 	.n_worker_threads = 16,
 	.epoll_timeout = -1,
-	.sv_socket = -1,
+	.sockfds = NULL,
 };
 
 #define PASTE(x, y) x##y
@@ -75,6 +75,8 @@ int main(int argc, char *argv[], char *env[]) {
 
 	bool bdd_instance;
 	int input_fd = -1;
+	int *sockfds = NULL;
+	size_t fuck_idx = 0; // to-do: rename that variable
 	struct sockaddr_un input_addr = {
 		0,
 		.sun_family = AF_UNIX,
@@ -334,36 +336,47 @@ int main(int argc, char *argv[], char *env[]) {
 		0,
 	};
 	size_t sv_addr_sz = 0;
+	int af;
 	if (disable_ipv6) {
-		settings.sv_socket = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
-		if (settings.sv_socket < 0) {
-			goto clean_up;
-		}
 		sv_addr_sz = sizeof(struct sockaddr_in);
-		sv_addr.inet4.sin_family = AF_INET;
+		af = sv_addr.inet4.sin_family = AF_INET;
 		sv_addr.inet4.sin_addr.s_addr = INADDR_ANY;
 		sv_addr.inet4.sin_port = htons(port);
 	} else {
-		settings.sv_socket = socket(AF_INET6, SOCK_STREAM | SOCK_NONBLOCK, 0);
-		if (settings.sv_socket < 0) {
-			goto clean_up;
-		}
 		sv_addr_sz = sizeof(struct sockaddr_in6);
-		sv_addr.inet6.sin6_family = AF_INET6;
+		af = sv_addr.inet6.sin6_family = AF_INET6;
 		sv_addr.inet6.sin6_addr = in6addr_any;
 		sv_addr.inet6.sin6_port = htons(port);
 	}
 	// try to bind to port
-	int opt = 1;
-	setsockopt(settings.sv_socket, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &(opt), sizeof(opt));
-	if (bind(settings.sv_socket, (struct sockaddr *)&(sv_addr), sv_addr_sz) < 0) {
-		fprintf(stderr, "failed to bind sv_socket! errno: %i\n", errno);
+	sockfds = malloc(sizeof(int) * settings.n_worker_threads);
+	if (sockfds == NULL) {
 		goto clean_up;
 	}
-	if (listen(settings.sv_socket, backlog) < 0) {
-		fprintf(stderr, "failed to listen on sv_socket! errno: %i\n", errno);
+	for (; fuck_idx < settings.n_worker_threads; ++fuck_idx) {
+		int fd = socket(af, SOCK_STREAM | SOCK_NONBLOCK, 0);
+		if (fd < 0) {
+			fprintf(stderr, "failed to create sv_socket! errno: %i\n", errno);
+			goto sock_err;
+		}
+		int opt = 1;
+		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &(opt), sizeof(opt));
+		if (bind(fd, (struct sockaddr *)&(sv_addr), sv_addr_sz) < 0) {
+			fprintf(stderr, "failed to bind sv_socket! errno: %i\n", errno);
+			goto sock_err;
+		}
+		if (listen(fd, backlog) < 0) {
+			fprintf(stderr, "failed to listen on sv_socket! errno: %i\n", errno);
+			goto sock_err;
+		}
+		sockfds[fuck_idx] = fd;
+		continue;
+
+		sock_err:;
+		close(fd);
 		goto clean_up;
 	}
+	settings.sockfds = sockfds;
 
 	setgid(ngid);
 	if (getuid() == 0) {
@@ -474,9 +487,12 @@ int main(int argc, char *argv[], char *env[]) {
 		unlink(input_addr.sun_path);
 		close(input_fd);
 	}
-	if (settings.sv_socket != -1) {
-		shutdown(settings.sv_socket, SHUT_RDWR);
-		close(settings.sv_socket);
+	if (sockfds != NULL) {
+		for (size_t idx = 0; idx < fuck_idx; ++idx) {
+			shutdown(sockfds[idx], SHUT_RDWR);
+			close(sockfds[idx]);
+		}
+		free(sockfds);
 	}
 	// aight
 	if (settings.name_descs != NULL) {

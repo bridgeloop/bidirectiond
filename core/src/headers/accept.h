@@ -21,7 +21,8 @@ int bdd_alpn_cb(
 	struct bdd_conversation *conversation
 );
 int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_conversation *conversation);
-void *bdd_accept(void);
+struct bdd_worker_data;
+void bdd_accept(struct bdd_worker_data *worker_data);
 enum bdd_cont bdd_connect_continue(struct bdd_conversation *conversation, int epoll_fd);
 enum bdd_cont bdd_accept_continue(struct bdd_conversation *conversation, int epoll_fd);
 enum bdd_cont bdd_ssl_shutdown_continue(struct bdd_io *io);

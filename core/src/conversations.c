@@ -40,24 +40,29 @@ int bdd_conversation_id(struct bdd_conversation *conversation) {
 }
 
 struct bdd_conversation *bdd_conversation_obtain(void) {
-	struct bdd_conversation *conversation = NULL;
+	struct bdd_conversation *conversation;
 	pthread_mutex_lock(&(bdd_gv.available_conversations.mutex));
-	while (!atomic_load(&(bdd_gv.exiting)) && bdd_gv.available_conversations.idx == bdd_gv.n_conversations) {
-		pthread_cond_wait(&(bdd_gv.available_conversations.cond), &(bdd_gv.available_conversations.mutex));
+	if (atomic_load(&(bdd_gv.exiting)) || bdd_gv.available_conversations.idx == bdd_gv.n_conversations) {
+		pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
+		return NULL;
 	}
-	if (!atomic_load(&(bdd_gv.exiting))) {
-		int id = bdd_gv.available_conversations.ids[bdd_gv.available_conversations.idx++];
-		conversation = &(bdd_gv.conversations[id]);
-		conversation->state = bdd_conversation_obtained;
-		conversation->sosi.service_instance = NULL;
-		bdd_io_init(conversation, &(conversation->client));
-		conversation->soac.ac.protocol_name = NULL;
-		conversation->soac.ac.cstr_protocol_name = NULL;
-		conversation->associated.data = NULL;
-		conversation->associated.destructor = NULL;
-		conversation->in_discard_list = 0;
+	int id = bdd_gv.available_conversations.ids[bdd_gv.available_conversations.idx++];
+	if (bdd_gv.available_conversations.idx == bdd_gv.n_conversations) {
+		for (size_t idx = 0; idx < bdd_gv.n_workers; ++idx) {
+			struct bdd_worker_data *worker_data = bdd_gv_worker(idx);
+			epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_DEL, worker_data->serve_fd, NULL);
+		}
 	}
 	pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
+	conversation = &(bdd_gv.conversations[id]);
+	conversation->state = bdd_conversation_obtained;
+	conversation->sosi.service_instance = NULL;
+	bdd_io_init(conversation, &(conversation->client));
+	conversation->soac.ac.protocol_name = NULL;
+	conversation->soac.ac.cstr_protocol_name = NULL;
+	conversation->associated.data = NULL;
+	conversation->associated.destructor = NULL;
+	conversation->in_discard_list = 0;
 	return conversation;
 }
 void bdd_conversation_discard(struct bdd_conversation *conversation, int epoll_fd) {
@@ -80,9 +85,21 @@ void bdd_conversation_discard(struct bdd_conversation *conversation, int epoll_f
 
 		assert(id >= 0 && id < bdd_gv.n_conversations);
 
+		bool made_avail = bdd_gv.available_conversations.idx == bdd_gv.n_conversations;
+
 		bdd_gv.available_conversations.ids[--(bdd_gv.available_conversations.idx)] = id;
 
-		pthread_cond_signal(&(bdd_gv.available_conversations.cond));
+		if (made_avail) {
+			for (size_t idx = 0; idx < bdd_gv.n_workers; ++idx) {
+				struct bdd_worker_data *worker_data = bdd_gv_worker(idx);
+				struct epoll_event ev = {
+					.events = EPOLLIN,
+					.data = { .ptr = NULL, },
+				};
+				epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, worker_data->serve_fd, &(ev));
+			}
+		}
+
 		pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
 	}
 	conversation->state = bdd_conversation_unused;

@@ -5,8 +5,6 @@
 #include <signal.h>
 
 struct bdd_settings {
-	int sv_socket;
-
 	struct bdd_name_descs *name_descs;
 
 	int epoll_timeout;
@@ -16,6 +14,8 @@ struct bdd_settings {
 	unsigned short int n_worker_threads;
 
 	sigset_t sigmask;
+
+	int *sockfds;
 };
 
 #endif

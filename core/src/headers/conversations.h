@@ -34,8 +34,6 @@ struct bdd_conversation {
 	struct bdd_conversation *prev;
 	time_t accessed_at;
 
-	pthread_mutex_t mutex;
-
 	union {
 		const struct bdd_service *service;
 		struct bdd_service_instance *service_instance;

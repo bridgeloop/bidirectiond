@@ -23,14 +23,12 @@ struct bdd_gv bdd_gv = {
 
 	.name_descs = NULL,
 
-	.sv_socket = -1,
 	.eventfd = -1,
 
 	.conversations = NULL,
 	.conversations_idx = 0,
 	.available_conversations = {
 		.mutex = PTHREAD_MUTEX_INITIALIZER,
-		.cond = PTHREAD_COND_INITIALIZER,
 		.ids = NULL,
 		.idx = 0,
 	},
@@ -96,7 +94,6 @@ void bdd_destroy(void) {
 	pthread_cond_destroy(&(bdd_gv.n_running_threads_cond));
 
 	pthread_mutex_destroy(&(bdd_gv.available_conversations.mutex));
-	pthread_cond_destroy(&(bdd_gv.available_conversations.cond));
 
 	for (
 		size_t idx = 0;
@@ -106,7 +103,6 @@ void bdd_destroy(void) {
 		struct bdd_worker_data *worker = bdd_gv_worker(idx);
 		close(worker->epoll_fd);
 		SSL_CTX_free(worker->ssl_ctx);
-		bdd_tl_destroy(&(worker->timeout_list));
 	}
 
 	for (
@@ -116,7 +112,6 @@ void bdd_destroy(void) {
 	) {
 		struct bdd_conversation *conversation = &(bdd_gv.conversations[idx]);
 		bdd_conversation_discard(conversation, -1);
-		pthread_mutex_destroy(&(conversation->mutex));
 	}
 
 	free(bdd_gv.conversations);
@@ -127,7 +122,7 @@ void bdd_destroy(void) {
 
 bool bdd_go(struct bdd_settings settings) {
 	if (
-		settings.sv_socket < 0 ||
+		settings.sockfds == NULL ||
 		settings.n_conversations <= 0 ||
 		settings.n_epoll_oevents <= 0 ||
 		settings.name_descs == NULL ||
@@ -160,8 +155,6 @@ bool bdd_go(struct bdd_settings settings) {
 	bdd_gv.epoll_timeout = settings.epoll_timeout;
 	// name_descs
 	bdd_gv.name_descs = settings.name_descs;
-	// server socket
-	bdd_gv.sv_socket = settings.sv_socket;
 	// conversations
 	bdd_gv.n_conversations = settings.n_conversations;
 	bdd_gv.conversations = malloc(
@@ -178,10 +171,7 @@ bool bdd_go(struct bdd_settings settings) {
 	// available stack
 	bdd_gv.available_conversations.ids = (void *)&(bdd_gv.conversations[settings.n_conversations]);
 	bdd_gv.available_conversations.idx = 0;
-	if (
-		pthread_mutex_init(&(bdd_gv.available_conversations.mutex), NULL) != 0 ||
-		pthread_cond_init(&(bdd_gv.available_conversations.cond), NULL) != 0
-	) {
+	if (pthread_mutex_init(&(bdd_gv.available_conversations.mutex), NULL) != 0) {
 		goto err;
 	}
 	// init conversations, and the available stack
@@ -190,9 +180,6 @@ bool bdd_go(struct bdd_settings settings) {
 		(*idx) < settings.n_conversations;
 		++(*idx)
 	) {
-		if (pthread_mutex_init(&(bdd_gv.conversations[(*idx)].mutex), NULL) != 0) {
-			goto err;
-		}
 		bdd_gv.conversations[(*idx)].state = bdd_conversation_unused;
 		bdd_gv.available_conversations.ids[(*idx)] = (*idx);
 	}
@@ -215,27 +202,30 @@ bool bdd_go(struct bdd_settings settings) {
 	for (bdd_gv.workers_idx = 0; bdd_gv.workers_idx < settings.n_worker_threads; ++bdd_gv.workers_idx) {
 		int epoll_fd = epoll_create1(0);
 		SSL_CTX *ssl_ctx = bdd_ssl_ctx_skel();
-		bool tl_init_success = bdd_tl_init(&(worker_data->timeout_list));
-		if (epoll_fd < 0 || ssl_ctx == NULL || !tl_init_success) {
+		bdd_tl_init(&(worker_data->timeout_list));
+		if (epoll_fd < 0 || ssl_ctx == NULL) {
 			goto worker_create_err;
 		}
 		struct epoll_event event = {
 			.events = EPOLLIN,
-		    .data = {
-			    .ptr = NULL,
-			},
+		    .data = { .ptr = NULL, },
 		};
+		worker_data->epoll_fd = epoll_fd;
+		worker_data->ssl_ctx = ssl_ctx;
+		worker_data->serve_fd = settings.sockfds[bdd_gv.workers_idx];
+		if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, worker_data->serve_fd, &(event)) != 0) {
+			goto worker_create_err;
+		}
 		if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, bdd_gv.eventfd, &(event)) != 0) {
 			goto worker_create_err;
 		}
-		worker_data->epoll_fd = epoll_create1(0);
-		worker_data->ssl_ctx = ssl_ctx;
 
 		if (pthread_create(&(pthid), NULL, (void *(*)(void *))(&(bdd_serve)), worker_data) != 0) {
 			goto worker_create_err;
 		}
 
 		worker_data = next_worker_data;
+		bdd_gv.n_running_threads += 1;
 		continue;
 
 		worker_create_err:;
@@ -243,22 +233,8 @@ bool bdd_go(struct bdd_settings settings) {
 		if (ssl_ctx != NULL) {
 			SSL_CTX_free(ssl_ctx);
 		}
-		if (tl_init_success) {
-			bdd_tl_destroy(&(worker_data->timeout_list));
-		}
 		goto err;
 	}
-
-	// accept
-	bdd_gv.accept.pollfds[0].fd = settings.sv_socket;
-	bdd_gv.accept.pollfds[0].events = POLLIN;
-	bdd_gv.accept.pollfds[1].fd = bdd_gv.eventfd;
-	bdd_gv.accept.pollfds[1].events = POLLIN;
-
-	if (pthread_create(&(pthid), NULL, (void *(*)(void *))(&(bdd_accept)), NULL) != 0) {
-		goto err;
-	}
-	bdd_gv.n_running_threads += 1;
 
 	pthread_mutex_unlock(&(bdd_gv.n_running_threads_mutex));
 	locked = false;

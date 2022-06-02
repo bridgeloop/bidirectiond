@@ -16,7 +16,6 @@ time_t bdd_time(void) {
 }
 
 void bdd_tl_link(struct bdd_tl *timeout_list, struct bdd_conversation *conversation) {
-	pthread_mutex_lock(&(timeout_list->mutex));
 	conversation->next = NULL;
 	conversation->accessed_at = bdd_time();
 	if (timeout_list->head == NULL) {
@@ -29,12 +28,10 @@ void bdd_tl_link(struct bdd_tl *timeout_list, struct bdd_conversation *conversat
 		timeout_list->tail->next = conversation;
 		timeout_list->tail = conversation;
 	}
-	pthread_mutex_unlock(&(timeout_list->mutex));
 	return;
 }
 
 void bdd_tl_unlink(struct bdd_tl *timeout_list, struct bdd_conversation *conversation) {
-	pthread_mutex_lock(&(timeout_list->mutex));
 	struct bdd_conversation *n;
 	if ((n = conversation->prev) != NULL) {
 		n->next = conversation->next;
@@ -53,16 +50,12 @@ void bdd_tl_unlink(struct bdd_tl *timeout_list, struct bdd_conversation *convers
 	}
 	conversation->next = NULL;
 	conversation->prev = NULL;
-	pthread_mutex_unlock(&(timeout_list->mutex));
 	return;
 }
 
 void bdd_tl_process(struct bdd_tl *timeout_list, int epoll_fd) {
-	pthread_mutex_lock(&(timeout_list->mutex));
 	for (;;) {
 		struct bdd_conversation *conversation = timeout_list->head;
-		pthread_mutex_lock(&(conversation->mutex));
-		pthread_mutex_unlock(&(conversation->mutex));
 		if (conversation == NULL) {
 			timeout_list->tail = NULL;
 			break;
@@ -76,19 +69,10 @@ void bdd_tl_process(struct bdd_tl *timeout_list, int epoll_fd) {
 		}
 		bdd_conversation_discard(conversation, epoll_fd);
 	}
-	pthread_mutex_unlock(&(timeout_list->mutex));
 	return;
 }
 
-bool bdd_tl_init(struct bdd_tl *timeout_list) {
-	if (pthread_mutex_init(&(timeout_list->mutex), NULL) != 0) {
-		return false;
-	}
+void bdd_tl_init(struct bdd_tl *timeout_list) {
 	timeout_list->head = timeout_list->tail = NULL;
-	return true;
-}
-
-void bdd_tl_destroy(struct bdd_tl *timeout_list) {
-	pthread_mutex_destroy(&(timeout_list->mutex));
 	return;
 }
