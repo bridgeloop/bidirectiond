@@ -6,6 +6,5 @@
     "supported_arguments": [
         "-s"
     ],
-    "arguments_help": "-s: creates a barebones proxy (e.g. `-s [service name] [target address/name] [target tcp port] [use ssl (true/false)]`)\n",
-    "n_max_io": 2
+    "arguments_help": "-s: creates a barebones proxy (e.g. `-s [service name] [target address/name] [target tcp port] [use ssl (true/false)]`)\n"
 }

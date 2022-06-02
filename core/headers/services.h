@@ -25,7 +25,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 	ssize_t sz
 );
 
-bool bdd_io_connect(struct bdd_conversation *conversation, struct sockaddr *addr, socklen_t addrlen);
+bool bdd_connect(struct bdd_conversation *conversation, int address_family, struct sockaddr *addr, socklen_t addrlen);
 bool bdd_prep_ssl(
 	struct bdd_conversation *conversation,
 	char *ssl_name,

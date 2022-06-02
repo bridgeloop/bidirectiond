@@ -12,63 +12,31 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
-struct general_service__associated {
-	bdd_io_id client;
-	bdd_io_id service;
-};
-
-static bool serve(struct bdd_conversation *conversation, bdd_io_id from, bdd_io_id to, bool *rdhup) {
+static uint8_t serve(struct bdd_conversation *conversation, uint8_t from, uint8_t to) {
 	unsigned char buf[0x200];
 	for (;;) {
 		ssize_t n = bdd_io_read(conversation, from, buf, sizeof(buf));
 		if (n == -2) {
-			rdhup[from] = true;
-			return true;
+			return 1;
 		}
 		if (n == -1) {
-			return false;
+			return 0;
 		}
 		if (n == 0) {
-			return true;
+			return 0;
 		}
 		if (bdd_io_write(conversation, to, buf, n) != n) {
-			return false;
+			return 0;
 		}
 	}
 }
 
-void general_service__handle_events(struct bdd_conversation *conversation) {
-	struct general_service__associated *associated = bdd_get_associated(conversation);
-	short int revents[] = { bdd_revent(conversation, associated->client), bdd_revent(conversation, associated->service), };
-	bool rdhup[] = { false, false, };
-	if ((revents[0] | revents[1]) & BDDEV_ERR) {
-		goto err;
-	}
-	if (revents[0] & BDDEV_IN) {
-		if (!serve(conversation, associated->client, associated->service, (bool *)rdhup)) {
-			goto err;
+void general_service__handle_events(struct bdd_conversation *conversation, uint8_t io_id, uint8_t events) {
+	if (events & BDDEV_IN) {
+		if (serve(conversation, io_id, io_id ^ 1)) {
+			bdd_io_shutdown(conversation, io_id ^ 1);
 		}
 	}
-	if (revents[1] & BDDEV_IN) {
-		if (!serve(conversation, associated->service, associated->client, (bool *)rdhup)) {
-			goto err;
-		}
-	}
-	if (rdhup[0]) {
-		if (bdd_io_shutdown(conversation, associated->service) == bdd_io_shutdown_err) {
-			goto err;
-		}
-	}
-	if (rdhup[1]) {
-		if (bdd_io_shutdown(conversation, associated->client) == bdd_io_shutdown_err) {
-			goto err;
-		}
-	}
-	return;
-
-	err:;
-	bdd_io_remove(conversation, associated->client);
-	bdd_io_remove(conversation, associated->service);
 	return;
 }
 struct general_service__info {
@@ -79,39 +47,23 @@ bool general_service__conversation_init(
 	struct bdd_conversation *conversation,
 	const char *protocol_name,
 	const void *service_info,
-	bdd_io_id client_id,
+	uint8_t client_id,
 	struct sockaddr client_sockaddr
 ) {
 	const struct general_service__info *info = service_info;
 	struct addrinfo *addrinfo = info->addrinfo;
-	bdd_io_id service;
 	for (; addrinfo != NULL; addrinfo = addrinfo->ai_next) {
-		if (!bdd_io_create(conversation, &(service), addrinfo->ai_family, addrinfo->ai_socktype, addrinfo->ai_protocol)) {
-			continue;
-		}
-
 		if (info->ssl_name != NULL) {
-			bdd_io_prep_ssl(conversation, service, (void *)info->ssl_name, NULL);
-		}
-		enum bdd_io_connect_status s = bdd_io_connect(conversation, service, addrinfo->ai_addr, addrinfo->ai_addrlen);
-		if (s != bdd_io_connect_err && s != bdd_io_connect_again) {
-			goto created;
+			if (!bdd_prep_ssl(conversation, (void *)info->ssl_name, NULL)) {
+				return true;
+			}
 		}
 
-		bdd_io_remove(conversation, service);
+		if (bdd_connect(conversation, AF_INET, addrinfo->ai_addr, addrinfo->ai_addrlen)) {
+			return true;
+		}
 	}
 	return false;
-
-	created:;
-	struct general_service__associated *associated = malloc(sizeof(struct general_service__associated));
-	if (associated == NULL) {
-		// bdd-core will destroy the io
-		return false;
-	}
-	associated->client = client_id;
-	associated->service = service;
-	bdd_set_associated(conversation, associated, free);
-	return true;
 }
 void general_service__instance_info_destructor(void *hint) {
 	struct general_service__info *info = hint;

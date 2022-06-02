@@ -16,7 +16,7 @@ def append_service(service):
 		value = service[key]
 		if type(value) != str:
 			raise Exception("error")
-		declarations += f"bool {value}(struct bdd_conversation *conversation, const char *protocol_name, const void *instance_info, bdd_io_id client_id, struct sockaddr client_sockaddr);"
+		declarations += f"bool {value}(struct bdd_conversation *conversation, const char *protocol_name, const void *instance_info, uint8_t client_id, struct sockaddr client_sockaddr);"
 	else:
 		value = "NULL"
 	service_str += f".{key} = &({value}),"
@@ -38,17 +38,11 @@ def append_service(service):
 	declarations += f"bool {value}(struct bdd_name_descs *name_descs, const struct bdd_service *service, size_t n_arguments, const char **arguments);"
 	service_str += f".{key} = &({value}),"
 	#
-	key = "n_max_io"
-	value = service[key]
-	if type(value) != int:
-		raise Exception("error")
-	service_str += f".{key} = {value},"
-	#
 	key = "handle_events"
 	value = service[key]
 	if type(value) != str:
 		raise Exception("error")
-	declarations += f"void {value}(struct bdd_conversation *conversation);"
+	declarations += f"void {value}(struct bdd_conversation *conversation, uint8_t io_id, uint8_t events);"
 	service_str += f".{key} = &({value}),"
 	#
 	key = "supported_protocols"

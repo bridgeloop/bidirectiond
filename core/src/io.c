@@ -44,6 +44,14 @@ struct bdd_io *bdd_io_opposite(struct bdd_conversation *conversation, struct bdd
 	return bdd_io(conversation, io_id ^ 1);
 }
 
+int bdd_io_internal_fd(struct bdd_io *io) {
+	if (io->ssl) {
+		return SSL_get_fd(io->io.ssl);
+	} else {
+		return io->io.fd;
+	}
+}
+
 // returns the number of bytes read, returns -2 on rdhup, returns -1 on err
 __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 	struct bdd_conversation *conversation,
