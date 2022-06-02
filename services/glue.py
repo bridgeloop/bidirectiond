@@ -96,7 +96,7 @@ subprocess.run([
 	"gcc",
 
 	"-c", fd.name,
-	"-o", os.path.join(dir_path, "..", "build", "glue.o"),
+	"-o", os.path.join(dir_path, "..", "output", "glue.o"),
 
 	"-I" + os.path.join(dir_path, "..", "inc"),
 ])
