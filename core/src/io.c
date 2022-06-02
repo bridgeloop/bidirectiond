@@ -54,7 +54,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 	struct bdd_io *io = bdd_io(conversation, io_id);
 	if (io == NULL || buf == NULL || sz <= 0) {
 		fputs("programming error: bdd_read called with invalid arguments\n", stderr);
-		assert(false);
+		abort();
 		return -1;
 	}
 
