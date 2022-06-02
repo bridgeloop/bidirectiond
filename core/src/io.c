@@ -155,7 +155,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 			) {
 				return 0;
 			}
-			io->state = BDD_IO_RO;
+			io->state = BDD_IO_ERR;
 			return -1;
 		}
 	} else {
@@ -167,7 +167,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				return 0;
 			}
-			io->state = BDD_IO_RO;
+			io->state = BDD_IO_ERR;
 			return -1;
 		}
 	}
@@ -182,6 +182,7 @@ bool bdd_io_shutdown(struct bdd_conversation *conversation, uint8_t io_id) {
 		return false;
 	}
 	if (io->state != BDD_IO_RW) {
+		printf("io->state %i\n", io->state);
 		fputs("programming error: bdd_io_shutdown called with an io_id which is in a state not equal to BDD_IO_RW\n", stderr);
 		abort();
 		return false;

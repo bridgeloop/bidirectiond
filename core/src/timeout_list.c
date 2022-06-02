@@ -15,7 +15,7 @@ time_t bdd_time(void) {
 	return ms;
 }
 
-void bdd_tl_unlink(struct bdd_tl *timeout_list, struct bdd_conversation *conversation) {
+void bdd_tl_link(struct bdd_tl *timeout_list, struct bdd_conversation *conversation) {
 	pthread_mutex_lock(&(timeout_list->mutex));
 	conversation->next = NULL;
 	conversation->accessed_at = bdd_time();
@@ -33,7 +33,7 @@ void bdd_tl_unlink(struct bdd_tl *timeout_list, struct bdd_conversation *convers
 	return;
 }
 
-void bdd_tl_link(struct bdd_tl *timeout_list, struct bdd_conversation *conversation) {
+void bdd_tl_unlink(struct bdd_tl *timeout_list, struct bdd_conversation *conversation) {
 	pthread_mutex_lock(&(timeout_list->mutex));
 	struct bdd_conversation *n;
 	if ((n = conversation->prev) != NULL) {

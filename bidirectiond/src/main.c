@@ -34,7 +34,6 @@ struct bdd_settings settings = {
 	.n_worker_threads = 16,
 	.epoll_timeout = -1,
 	.sv_socket = -1,
-	.use_work_queues = false,
 };
 
 #define PASTE(x, y) x##y
@@ -170,9 +169,6 @@ int main(int argc, char *argv[], char *env[]) {
 		} else if (strcmp((*arg), "--disable-ipv6") == 0) {
 			disable_ipv6 = true;
 			arg += 1;
-		} else if (strcmp((*arg), "--use-work-queue") == 0) {
-			settings.use_work_queues = true;
-			arg += 1;
 		} else if (strcmp((*arg), "--nohup") == 0) {
 			struct sigaction action = {
 				.sa_handler = SIG_IGN,
@@ -307,8 +303,6 @@ int main(int argc, char *argv[], char *env[]) {
 			     "--max-conversations: the max amount of "
 			     "bdd_conversation structs\n"
 			     "--disable-ipv6: sv_socket should not use ipv6\n"
-			     "--use-work-queue: do not wait for worker threads "
-			     "before giving them work\n"
 			     "--nohup: SIG_IGN SIGHUP\n"
 			     "-c: load pem-encoded tls credentials (e.g. `-c "
 			     "cert.pem encrypted-key.pem "

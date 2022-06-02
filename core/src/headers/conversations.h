@@ -18,6 +18,7 @@ struct bdd_associated {
 };
 
 enum bdd_conversation_state {
+	bdd_conversation_unused,
 	bdd_conversation_obtained,
 	bdd_conversation_accept,
 	bdd_conversation_ssl,

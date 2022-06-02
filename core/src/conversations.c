@@ -62,6 +62,7 @@ struct bdd_conversation *bdd_conversation_obtain(void) {
 }
 void bdd_conversation_discard(struct bdd_conversation *conversation, int epoll_fd) {
 	if (conversation->state >= bdd_conversation_accept) {
+		bdd_set_associated(conversation, NULL, NULL);
 		bdd_io_discard(&(conversation->client), epoll_fd);
 	}
 	if (conversation->state == bdd_conversation_ssl) {
@@ -70,20 +71,20 @@ void bdd_conversation_discard(struct bdd_conversation *conversation, int epoll_f
 	if (conversation->state > bdd_conversation_ssl) {
 		bdd_io_discard(&(conversation->soac.server), epoll_fd);
 	}
-	bdd_set_associated(conversation, NULL, NULL);
+	if (conversation->state >= bdd_conversation_obtained) {
+		pthread_mutex_lock(&(bdd_gv.available_conversations.mutex));
 
-	pthread_mutex_lock(&(bdd_gv.available_conversations.mutex));
+		assert(bdd_gv.available_conversations.idx != 0);
 
-	assert(bdd_gv.available_conversations.idx != 0);
+		int id = bdd_conversation_id(conversation);
 
-	int id = bdd_conversation_id(conversation);
+		assert(id >= 0 && id < bdd_gv.n_conversations);
 
-	assert(id >= 0 && id < bdd_gv.n_conversations);
+		bdd_gv.available_conversations.ids[--(bdd_gv.available_conversations.idx)] = id;
 
-	bdd_gv.available_conversations.ids[--(bdd_gv.available_conversations.idx)] = id;
-
-	pthread_cond_signal(&(bdd_gv.available_conversations.cond));
-	pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
-
+		pthread_cond_signal(&(bdd_gv.available_conversations.cond));
+		pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
+	}
+	conversation->state = bdd_conversation_unused;
 	return;
 }

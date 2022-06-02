@@ -11,8 +11,6 @@ struct bdd_settings {
 
 	int epoll_timeout;
 
-	bool use_work_queues;
-
 	int n_conversations;
 	int n_epoll_oevents;
 	unsigned short int n_worker_threads;
