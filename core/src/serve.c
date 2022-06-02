@@ -91,7 +91,6 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 		struct epoll_event *event = &(events[idx]);
 		struct bdd_io *io = event->data.ptr;
 		if (io == NULL) {
-	printf("%p\n", worker_data);
 			bdd_accept(worker_data);
 			continue;
 		}
