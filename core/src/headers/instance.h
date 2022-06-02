@@ -12,6 +12,8 @@
 #include "accept.h"
 #include "serve.h"
 
+void bdd_thread_exit(void);
+
 struct bdd_gv {
 	SSL_CTX *cl_ssl_ctx;
 
@@ -29,7 +31,7 @@ struct bdd_gv {
 	void *name_descs;
 
 	int sv_socket;
-	int serve_eventfd;
+	int eventfd;
 
 	int n_conversations;
 	struct bdd_conversation *conversations;
@@ -42,7 +44,6 @@ struct bdd_gv {
 	} available_conversations;
 
 	struct {
-		int eventfd;
 		struct pollfd pollfds[2];
 	} accept;
 

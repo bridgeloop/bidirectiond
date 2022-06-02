@@ -10,21 +10,7 @@
 #include "headers/instance.h"
 #include "headers/conversations.h"
 #include "headers/bdd_settings.h"
-#include "headers/signal.h"
 #include "headers/serve.h"
-
-void bdd_mutex_preinit(pthread_mutex_t *dest) {
-	static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-	memcpy(dest, &(mutex), sizeof(pthread_mutex_t));
-	return;
-}
-
-void bdd_cond_preinit(pthread_cond_t *dest) {
-	static pthread_cond_t mutex = PTHREAD_COND_INITIALIZER;
-	memcpy(dest, &(mutex), sizeof(pthread_cond_t));
-	return;
-}
-
 
 struct bdd_gv bdd_gv = {
 	.cl_ssl_ctx = NULL,
@@ -38,7 +24,7 @@ struct bdd_gv bdd_gv = {
 	.name_descs = NULL,
 
 	.sv_socket = -1,
-	.serve_eventfd = -1,
+	.eventfd = -1,
 
 	.conversations = NULL,
 	.conversations_idx = 0,
@@ -47,10 +33,6 @@ struct bdd_gv bdd_gv = {
 		.cond = PTHREAD_COND_INITIALIZER,
 		.ids = NULL,
 		.idx = 0,
-	},
-
-	.accept = {
-		.eventfd = -1,
 	},
 
 	.workers = NULL,
@@ -77,18 +59,21 @@ SSL_CTX *bdd_ssl_ctx_skel(void) {
 	return NULL;
 }
 
+void bdd_thread_exit(void) {
+	pthread_mutex_lock(&(bdd_gv.n_running_threads_mutex));
+	if ((bdd_gv.n_running_threads -= 1) == 0) {
+		pthread_cond_signal(&(bdd_gv.n_running_threads_cond));
+	}
+	pthread_mutex_unlock(&(bdd_gv.n_running_threads_mutex));
+	pthread_exit(NULL);
+	return;
+}
+
 void bdd_stop(void) {
 	atomic_store(&(bdd_gv.exiting), true);
-	if (bdd_gv.accept.eventfd != -1) {
-		bdd_stop_accept();
-	}
-	if (bdd_gv.serve_eventfd != -1) {
-		bdd_signal();
-	}
-	for (unsigned short int idx = 0; idx < bdd_gv.n_workers; ++idx) {
-		pthread_mutex_lock(&(bdd_gv.workers[idx].work_mutex));
-		pthread_cond_signal(&(bdd_gv.workers[idx].work_cond));
-		pthread_mutex_unlock(&(bdd_gv.workers[idx].work_mutex));
+	if (bdd_gv.eventfd != -1) {
+		char buf[8] = { ~0, 0, 0, 0, 0, 0, 0, ~0, };
+		write(bdd_gv.eventfd, (void *)buf, 8);
 	}
 	return;
 }
@@ -103,14 +88,25 @@ void bdd_wait(void) {
 	return;
 }
 void bdd_destroy(void) {
+	if (bdd_gv.cl_ssl_ctx != NULL) {
+		SSL_CTX_free(bdd_gv.cl_ssl_ctx);
+	}
+
 	pthread_mutex_destroy(&(bdd_gv.n_running_threads_mutex));
 	pthread_cond_destroy(&(bdd_gv.n_running_threads_cond));
 
-	close(bdd_gv.epoll_fd);
-	free(bdd_gv.epoll_oevents);
-
 	pthread_mutex_destroy(&(bdd_gv.available_conversations.mutex));
 	pthread_cond_destroy(&(bdd_gv.available_conversations.cond));
+
+	for (
+		size_t idx = 0;
+		idx < bdd_gv.n_workers;
+		++idx
+	) {
+		close(bdd_gv.workers[idx].epoll_fd);
+		SSL_CTX_free(bdd_gv.workers[idx].ssl_ctx);
+		bdd_tl_destroy(&(bdd_gv.workers[idx].timeout_list));
+	}
 
 	for (
 		size_t idx = 0;
@@ -121,32 +117,9 @@ void bdd_destroy(void) {
 		bdd_conversation_discard(conversation, -1);
 		pthread_mutex_destroy(&(conversation->mutex));
 	}
+
 	free(bdd_gv.conversations);
-
-	pthread_mutex_destroy(&(bdd_gv.conversations_to_epoll.mutex));
-
-	close(bdd_gv.accept.eventfd);
-	if (bdd_gv.accept.ssl_ctx != NULL) {
-		SSL_CTX_free(bdd_gv.accept.ssl_ctx);
-	}
-
-	close(bdd_gv.serve_eventfd);
-
-	pthread_mutex_destroy(&(bdd_gv.available_workers.mutex));
-	pthread_cond_destroy(&(bdd_gv.available_workers.cond));
-	free(bdd_gv.available_workers.ids);
-
-	for (
-		size_t idx = 0;
-		idx < bdd_gv.n_workers;
-		++idx
-	) {
-		pthread_mutex_destroy(&(bdd_gv.workers[idx].work_mutex));
-		pthread_cond_destroy(&(bdd_gv.workers[idx].work_cond));
-	}
-
-	free(bdd_gv.workers);
-	SSL_CTX_free(bdd_gv.cl_ssl_ctx);
+	close(bdd_gv.eventfd);
 
 	return;
 }
@@ -165,7 +138,7 @@ bool bdd_go(struct bdd_settings settings) {
 	bool locked = false;
 
 	SSL_CTX *cl_ssl_ctx = SSL_CTX_new(TLS_client_method());
-	if (sl_ssl_ctx == NULL) {
+	if (cl_ssl_ctx == NULL) {
 		return false;
 	}
 	SSL_CTX_set_min_proto_version(cl_ssl_ctx, TLS1_3_VERSION);
@@ -216,7 +189,7 @@ bool bdd_go(struct bdd_settings settings) {
 		(*idx) < settings.n_conversations;
 		++(*idx)
 	) {
-		if (pthread_mutex_init(&(bdd_gv.conversations[(*idx)]), NULL) != 0) {
+		if (pthread_mutex_init(&(bdd_gv.conversations[(*idx)].mutex), NULL) != 0) {
 			goto err;
 		}
 		bdd_gv.available_conversations.ids[(*idx)] = (*idx);
@@ -241,7 +214,7 @@ bool bdd_go(struct bdd_settings settings) {
 	bdd_gv.n_running_threads += 1;
 
 	// serve
-	struct bdd_worker_data *worker_data = &(bdd_gv.available_conversations.ids[settings.n_conversations]);
+	struct bdd_worker_data *worker_data = (struct bdd_worker_data *)&(bdd_gv.available_conversations.ids[settings.n_conversations]);
 	#define next_worker_data \
 		(struct bdd_worker_data *)((char *)worker_data + sizeof(struct bdd_worker_data) + (sizeof(struct epoll_event) * settings.n_epoll_oevents))
 	for (bdd_gv.workers_idx = 0; bdd_gv.workers_idx < settings.n_worker_threads; ++bdd_gv.workers_idx) {
@@ -263,7 +236,7 @@ bool bdd_go(struct bdd_settings settings) {
 		worker_data->epoll_fd = epoll_create1(0);
 		worker_data->ssl_ctx = ssl_ctx;
 
-		if (pthread_create(&(pthid), NULL, (void *(*)(void *))(&(bdd_worker)), worker_data) != 0) {
+		if (pthread_create(&(pthid), NULL, (void *(*)(void *))(&(bdd_serve)), worker_data) != 0) {
 			goto worker_create_err;
 		}
 
@@ -271,9 +244,7 @@ bool bdd_go(struct bdd_settings settings) {
 		continue;
 
 		worker_create_err:;
-		if (epoll_fd >= 0) {
-			close(epoll_fd);
-		}
+		close(epoll_fd);
 		if (ssl_ctx != NULL) {
 			SSL_CTX_free(ssl_ctx);
 		}

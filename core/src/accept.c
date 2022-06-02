@@ -16,7 +16,7 @@
 #include "headers/conversations.h"
 #include "headers/name_descs.h"
 #include "headers/bdd_service.h"
-#include "headers/signal.h"
+#include "headers/bdd_stop.h"
 
 int bdd_alpn_cb(
 	SSL *client_ssl,
@@ -311,7 +311,7 @@ enum bdd_cont bdd_connect_continue(struct bdd_conversation *conversation, int ep
 		io->in_epoll = 1;
 		ev.data.ptr = io;
 		if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, bdd_io_internal_fd(io), &(ev)) != 0) {
-			goto bdd_cont_discard;
+			return bdd_cont_discard;
 		}
 	}
 	if (est) {
@@ -320,7 +320,7 @@ enum bdd_cont bdd_connect_continue(struct bdd_conversation *conversation, int ep
 			io->in_epoll = 1;
 			ev.data.ptr = io;
 			if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, bdd_io_internal_fd(io), &(ev)) != 0) {
-				goto bdd_cont_discard;
+				return bdd_cont_discard;
 			}
 		}
 	}

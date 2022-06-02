@@ -16,7 +16,7 @@
 #include "headers/bdd_event.h"
 #include "headers/bdd_io.h"
 #include "headers/bdd_service.h"
-#include "headers/signal.h"
+#include "headers/bdd_stop.h"
 
 enum handle_io_status {
 	handle_io_discard,
@@ -82,11 +82,6 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 		fprintf(stderr, "bidirectiond epoll error: %i - try increasing your rlimits for open files\n", errno);
 		bdd_stop();
 		bdd_thread_exit();
-	}
-	{
-		char g[9];
-		int r = read(bdd_gv.serve_eventfd, &(g), 9);
-		assert(r == 8 || r < 0);
 	}
 	if (unlikely(atomic_load(&(bdd_gv.exiting)))) {
 		bdd_thread_exit();
