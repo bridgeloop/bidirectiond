@@ -61,18 +61,16 @@ struct bdd_conversation *bdd_conversation_obtain(void) {
 	return conversation;
 }
 void bdd_conversation_discard(struct bdd_conversation *conversation, int epoll_fd) {
-	if (epoll_fd >= 0) {
-		if (conversation->state >= bdd_conversation_accept) {
-			bdd_io_discard(&(conversation->client), epoll_fd);
-		}
-		if (conversation->state == bdd_conversation_ssl) {
-			bdd_io_discard(&(conversation->soac.server), -1);
-		}
-		if (conversation->state > bdd_conversation_ssl) {
-			bdd_io_discard(&(conversation->soac.server), epoll_fd);
-		}
-		bdd_set_associated(conversation, NULL, NULL);
+	if (conversation->state >= bdd_conversation_accept) {
+		bdd_io_discard(&(conversation->client), epoll_fd);
 	}
+	if (conversation->state == bdd_conversation_ssl) {
+		bdd_io_discard(&(conversation->soac.server), -1);
+	}
+	if (conversation->state > bdd_conversation_ssl) {
+		bdd_io_discard(&(conversation->soac.server), epoll_fd);
+	}
+	bdd_set_associated(conversation, NULL, NULL);
 
 	pthread_mutex_lock(&(bdd_gv.available_conversations.mutex));
 

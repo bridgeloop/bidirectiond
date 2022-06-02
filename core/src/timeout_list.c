@@ -79,3 +79,16 @@ void bdd_tl_process(struct bdd_tl *timeout_list, int epoll_fd) {
 	pthread_mutex_unlock(&(timeout_list->mutex));
 	return;
 }
+
+bool bdd_tl_init(struct bdd_tl *timeout_list) {
+	if (pthread_mutex_init(&(timeout_list->mutex), NULL) != 0) {
+		return false;
+	}
+	timeout_list->head = timeout_list->tail = NULL;
+	return true;
+}
+
+void bdd_tl_destroy(struct bdd_tl *timeout_list) {
+	pthread_mutex_destroy(&(timeout_list->mutex));
+	return;
+}

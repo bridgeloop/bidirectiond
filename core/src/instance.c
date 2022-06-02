@@ -29,43 +29,32 @@ void bdd_cond_preinit(pthread_cond_t *dest) {
 struct bdd_gv bdd_gv = {
 	.cl_ssl_ctx = NULL,
 
+	.exiting = false,
+
 	.n_running_threads = 0,
 	.n_running_threads_mutex = PTHREAD_MUTEX_INITIALIZER,
 	.n_running_threads_cond = PTHREAD_COND_INITIALIZER,
-
-	.epoll_fd = -1,
-	.epoll_oevents = NULL,
 
 	.name_descs = NULL,
 
 	.sv_socket = -1,
 	.serve_eventfd = -1,
 
-	.available_coac = {
+	.conversations = NULL,
+	.conversations_idx = 0,
+	.available_conversations = {
 		.mutex = PTHREAD_MUTEX_INITIALIZER,
 		.cond = PTHREAD_COND_INITIALIZER,
 		.ids = NULL,
-	},
-	.coac = NULL,
-	.coac_idx = 0,
-
-	.conversations_to_epoll = {
-		.mutex = PTHREAD_MUTEX_INITIALIZER,
-		.head = NULL,
+		.idx = 0,
 	},
 
 	.accept = {
 		.eventfd = -1,
-		.ssl_ctx = NULL,
 	},
 
-	.available_workers = {
-		.mutex = PTHREAD_MUTEX_INITIALIZER,
-		.cond = PTHREAD_COND_INITIALIZER,
-		.ids = NULL,
-	},
-	.n_workers = 0,
 	.workers = NULL,
+	.workers_idx = 0,
 };
 
 SSL_CTX *bdd_ssl_ctx_skel(void) {
@@ -120,20 +109,19 @@ void bdd_destroy(void) {
 	close(bdd_gv.epoll_fd);
 	free(bdd_gv.epoll_oevents);
 
-	pthread_mutex_destroy(&(bdd_gv.available_coac.mutex));
-	pthread_cond_destroy(&(bdd_gv.available_coac.cond));
+	pthread_mutex_destroy(&(bdd_gv.available_conversations.mutex));
+	pthread_cond_destroy(&(bdd_gv.available_conversations.cond));
 
 	for (
 		size_t idx = 0;
-		idx < bdd_gv.coac_idx;
+		idx < bdd_gv.conversations_idx;
 		++idx
 	) {
-		struct bdd_coac *coac = &(bdd_gv.coac[idx]);
-		if (coac->inner_type == bdd_coac_conversation) {
-			bdd_conversation_deinit(&(coac->inner.conversation));
-		}
+		struct bdd_conversation *conversation = &(bdd_gv.conversations[idx]);
+		bdd_conversation_discard(conversation, -1);
+		pthread_mutex_destroy(&(conversation->mutex));
 	}
-	free(bdd_gv.coac);
+	free(bdd_gv.conversations);
 
 	pthread_mutex_destroy(&(bdd_gv.conversations_to_epoll.mutex));
 
@@ -174,7 +162,12 @@ bool bdd_go(struct bdd_settings settings) {
 		return false;
 	}
 
+	bool locked = false;
+
 	SSL_CTX *cl_ssl_ctx = SSL_CTX_new(TLS_client_method());
+	if (sl_ssl_ctx == NULL) {
+		return false;
+	}
 	SSL_CTX_set_min_proto_version(cl_ssl_ctx, TLS1_3_VERSION);
 	SSL_CTX_set_max_proto_version(cl_ssl_ctx, TLS1_3_VERSION);
 	bdd_gv.cl_ssl_ctx = cl_ssl_ctx;
@@ -189,141 +182,116 @@ bool bdd_go(struct bdd_settings settings) {
 		goto err;
 	}
 	// epoll
-	if ((bdd_gv.epoll_fd = epoll_create1(0)) < 0) {
-		goto err;
-	}
 	bdd_gv.n_epoll_oevents = settings.n_epoll_oevents;
-	if ((bdd_gv.epoll_oevents = malloc(sizeof(struct epoll_event) * settings.n_epoll_oevents)) == NULL) {
-		goto err;
-	}
 	bdd_gv.epoll_timeout = settings.epoll_timeout;
 	// name_descs
 	bdd_gv.name_descs = settings.name_descs;
 	// server socket
 	bdd_gv.sv_socket = settings.sv_socket;
 	// conversations
-	bdd_gv.n_coac = settings.n_conversations;
-	bdd_gv.coac = malloc(
-		(settings.n_conversations * sizeof(struct bdd_coac)) +
-		(settings.n_conversations * sizeof(int))
+	bdd_gv.n_conversations = settings.n_conversations;
+	bdd_gv.conversations = malloc(
+		(settings.n_conversations * sizeof(struct bdd_conversation)) + // conversations
+		(settings.n_conversations * sizeof(int)) + // available_conversations
+		((
+			sizeof(struct bdd_worker_data) +
+			(settings.n_epoll_oevents * sizeof(struct epoll_event))
+		) * settings.n_worker_threads) // workers
 	);
-	if (bdd_gv.coac == NULL) {
+	if (bdd_gv.conversations == NULL) {
 		goto err;
 	}
 	// available stack
-	bdd_gv.available_coac.ids = (void *)&(bdd_gv.coac[settings.n_conversations]);
-	bdd_gv.available_coac.idx = 0;
+	bdd_gv.available_conversations.ids = (void *)&(bdd_gv.conversations[settings.n_conversations]);
+	bdd_gv.available_conversations.idx = 0;
 	if (
-		pthread_mutex_init(&(bdd_gv.available_coac.mutex), NULL) != 0 ||
-		pthread_cond_init(&(bdd_gv.available_coac.cond), NULL) != 0
+		pthread_mutex_init(&(bdd_gv.available_conversations.mutex), NULL) != 0 ||
+		pthread_cond_init(&(bdd_gv.available_conversations.cond), NULL) != 0
 	) {
 		goto err;
 	}
 	// init conversations, and the available stack
 	for (
-		int *idx = &(bdd_gv.coac_idx);
+		int *idx = &(bdd_gv.conversations_idx);
 		(*idx) < settings.n_conversations;
 		++(*idx)
 	) {
-		bdd_gv.coac->inner_type = bdd_coac_none;
-		bdd_gv.available_coac.ids[(*idx)] = (*idx);
-	}
-	// to epoll
-	if (pthread_mutex_init(&(bdd_gv.conversations_to_epoll.mutex), NULL) != 0) {
-		goto err;
-	}
-	bdd_gv.conversations_to_epoll.head = NULL;
-	// accept
-	if ((bdd_gv.accept.eventfd = eventfd(0, EFD_NONBLOCK)) < 0) {
-		goto err;
-	}
-	bdd_gv.accept.pollfds[0].fd = settings.sv_socket;
-	bdd_gv.accept.pollfds[0].events = POLLIN;
-	bdd_gv.accept.pollfds[1].fd = bdd_gv.accept.eventfd;
-	bdd_gv.accept.pollfds[1].events = POLLIN;
-	if ((bdd_gv.accept.ssl_ctx = bdd_ssl_ctx_skel()) == NULL) {
-		goto err;
-	}
-	// serve
-	if ((bdd_gv.serve_eventfd = eventfd(0, EFD_NONBLOCK)) < 0) {
-		goto err;
-	}
-	struct epoll_event event = {
-		.events = EPOLLIN,
-	    .data = {
-		    .ptr = NULL,
-		},
-	};
-	if (epoll_ctl(bdd_gv.epoll_fd, EPOLL_CTL_ADD, bdd_gv.serve_eventfd, &(event)) != 0) {
-		goto err;
-	}
-
-	// workers
-	if (!settings.use_work_queues) {
-		unsigned short int *ids = malloc(settings.n_worker_threads * sizeof(unsigned short int));
-		if (ids == NULL) {
+		if (pthread_mutex_init(&(bdd_gv.conversations[(*idx)]), NULL) != 0) {
 			goto err;
 		}
-		bdd_gv.available_workers.ids = ids;
-		bdd_gv.available_workers.idx = settings.n_worker_threads;
+		bdd_gv.available_conversations.ids[(*idx)] = (*idx);
 	}
-
-	pthread_mutex_lock(&(bdd_gv.n_running_threads_mutex));
-	pthread_t pthid;
-	bool e = false;
-	if (pthread_create(&(pthid), NULL, (void *(*)(void *))(&(bdd_accept)), NULL) != 0) {
-		e = true;
-	} else {
-		bdd_gv.n_running_threads += 1;
-	}
-	if (!e && pthread_create(&(pthid), NULL, (void *(*)(void *))(&(bdd_serve)), NULL) != 0) {
-		e = true;
-	} else {
-		bdd_gv.n_running_threads += 1;
-	}
-	struct bdd_worker *workers = malloc(sizeof(struct bdd_worker) * settings.n_worker_threads);
-	if (workers == NULL) {
-		e = true;
-	}
-	bdd_gv.workers = workers;
-	for (
-		unsigned short int *idx = &(bdd_gv.n_workers);
-		!e && (*idx) < settings.n_worker_threads;
-		++(*idx)
-	) {
-		bdd_mutex_preinit(&(workers[(*idx)].work_mutex));
-		bdd_cond_preinit(&(workers[(*idx)].work_cond));
-		if (
-			pthread_mutex_init(&(workers[(*idx)].work_mutex), NULL) != 0 ||
-			pthread_cond_init(&(workers[(*idx)].work_cond), NULL) != 0
-		) {
-			e = true;
-		}
-		workers[(*idx)].id = (*idx);
-		workers[(*idx)].conversations = NULL;
-		workers[(*idx)].conversations_appender = NULL;
-		if (
-			!e &&
-			pthread_create(
-				&(pthid),
-				NULL,
-				(void *(*)(void *))(&(bdd_worker)),
-				&(workers[(*idx)])
-			) == 0
-		) {
-			bdd_gv.n_running_threads += 1;
-		} else {
-			e = true;
-		}
-	}
-	pthread_mutex_unlock(&(bdd_gv.n_running_threads_mutex));
-	if (e) {
+	// eventfd
+	bdd_gv.eventfd = eventfd(0, EFD_NONBLOCK);
+	if (bdd_gv.eventfd < 0) {
 		goto err;
 	}
+	// accept
+	bdd_gv.accept.pollfds[0].fd = settings.sv_socket;
+	bdd_gv.accept.pollfds[0].events = POLLIN;
+	bdd_gv.accept.pollfds[1].fd = bdd_gv.eventfd;
+	bdd_gv.accept.pollfds[1].events = POLLIN;
+
+	pthread_mutex_lock(&(bdd_gv.n_running_threads_mutex));
+	locked = true;
+	pthread_t pthid;
+	if (pthread_create(&(pthid), NULL, (void *(*)(void *))(&(bdd_accept)), NULL) != 0) {
+		goto err;
+	}
+	bdd_gv.n_running_threads += 1;
+
+	// serve
+	struct bdd_worker_data *worker_data = &(bdd_gv.available_conversations.ids[settings.n_conversations]);
+	#define next_worker_data \
+		(struct bdd_worker_data *)((char *)worker_data + sizeof(struct bdd_worker_data) + (sizeof(struct epoll_event) * settings.n_epoll_oevents))
+	for (bdd_gv.workers_idx = 0; bdd_gv.workers_idx < settings.n_worker_threads; ++bdd_gv.workers_idx) {
+		int epoll_fd = epoll_create1(0);
+		SSL_CTX *ssl_ctx = bdd_ssl_ctx_skel();
+		bool tl_init_success = bdd_tl_init(&(worker_data->timeout_list));
+		if (epoll_fd < 0 || ssl_ctx == NULL || !tl_init_success) {
+			goto worker_create_err;
+		}
+		struct epoll_event event = {
+			.events = EPOLLIN,
+		    .data = {
+			    .ptr = NULL,
+			},
+		};
+		if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, bdd_gv.eventfd, &(event)) != 0) {
+			goto worker_create_err;
+		}
+		worker_data->epoll_fd = epoll_create1(0);
+		worker_data->ssl_ctx = ssl_ctx;
+
+		if (pthread_create(&(pthid), NULL, (void *(*)(void *))(&(bdd_worker)), worker_data) != 0) {
+			goto worker_create_err;
+		}
+
+		worker_data = next_worker_data;
+		continue;
+
+		worker_create_err:;
+		if (epoll_fd >= 0) {
+			close(epoll_fd);
+		}
+		if (ssl_ctx != NULL) {
+			SSL_CTX_free(ssl_ctx);
+		}
+		if (tl_init_success) {
+			bdd_tl_destroy(&(worker_data->timeout_list));
+		}
+		goto err;
+	}
+
+	pthread_mutex_unlock(&(bdd_gv.n_running_threads_mutex));
+	locked = false;
 
 	return true;
 
-err:;
+	err:;
+	if (locked) {
+		pthread_mutex_unlock(&(bdd_gv.n_running_threads_mutex));
+	}
 	bdd_stop();
 	bdd_wait();
 	bdd_destroy();

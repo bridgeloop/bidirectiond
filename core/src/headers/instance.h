@@ -14,6 +14,7 @@
 
 struct bdd_gv {
 	SSL_CTX *cl_ssl_ctx;
+
 	sigset_t sigmask;
 
 	atomic_bool exiting;
@@ -30,32 +31,21 @@ struct bdd_gv {
 	int sv_socket;
 	int serve_eventfd;
 
+	int n_conversations;
+	struct bdd_conversation *conversations;
+	int conversations_idx;
 	struct {
 		pthread_mutex_t mutex;
 		pthread_cond_t cond;
 		int *ids;
 		int idx;
 	} available_conversations;
-	int n_conversations;
-	struct bdd_conversation *conversations;
-	int conversations_idx;
-
-	struct {
-		pthread_mutex_t mutex;
-		struct bdd_conversation *head;
-	} conversations_to_epoll;
 
 	struct {
 		int eventfd;
 		struct pollfd pollfds[2];
 	} accept;
 
-	struct {
-		pthread_mutex_t mutex;
-		pthread_cond_t cond;
-		unsigned short int *ids;
-		unsigned short int idx;
-	} available_workers;
 	unsigned short int n_workers;
 	struct bdd_worker_data *workers;
 	unsigned short int workers_idx;

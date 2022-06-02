@@ -310,14 +310,18 @@ enum bdd_cont bdd_connect_continue(struct bdd_conversation *conversation, int ep
 	if (!io->in_epoll) {
 		io->in_epoll = 1;
 		ev.data.ptr = io;
-		epoll_ctl(epoll_fd, EPOLL_CTL_ADD, bdd_io_internal_fd(io), &(ev));
+		if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, bdd_io_internal_fd(io), &(ev)) != 0) {
+			goto bdd_cont_discard;
+		}
 	}
 	if (est) {
 		io = &(conversation->client);
 		if (!io->in_epoll) {
 			io->in_epoll = 1;
 			ev.data.ptr = io;
-			epoll_ctl(epoll_fd, EPOLL_CTL_ADD, bdd_io_internal_fd(io), &(ev));
+			if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, bdd_io_internal_fd(io), &(ev)) != 0) {
+				goto bdd_cont_discard;
+			}
 		}
 	}
 	if (est) {
@@ -376,9 +380,15 @@ void *bdd_accept(void) {
 		},
 	};
 	io->in_epoll = 1;
-	epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, fd, &(ev));
-	bdd_tl_link(&(worker_data->timeout_list), conversation);
+	bool err = epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, fd, &(ev)) != 0;
+	if (!err) {
+		bdd_tl_link(&(worker_data->timeout_list), conversation);
+	}
 	pthread_mutex_lock(&(conversation->mutex));
+
+	if (err) {
+		goto err;
+	}
 
 	worker_id = (worker_id + 1) % bdd_gv.n_workers;
 

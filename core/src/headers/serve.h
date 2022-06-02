@@ -9,7 +9,7 @@ struct bdd_worker_data {
 	int epoll_fd;
 	SSL_CTX *ssl_ctx;
 	struct bdd_tl timeout_list;
-	struct epoll_event *events;
+	struct epoll_event events[];
 };
 void *bdd_serve(struct bdd_worker_data *worker_data);
 
