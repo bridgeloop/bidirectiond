@@ -54,6 +54,9 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 	if (io_array == NULL) {
 		return NULL;
 	}
+	for (size_t idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
+		io_array[idx].state = bdd_io_unused;
+	}
 	struct bdd_conversation *conversation;
 	pthread_mutex_lock(&(bdd_gv.available_conversations.mutex));
 	if (atomic_load(&(bdd_gv.exiting)) || bdd_gv.available_conversations.idx == bdd_gv.n_conversations) {
@@ -82,17 +85,17 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 	return conversation;
 }
 void bdd_conversation_discard(struct bdd_conversation *conversation, int epoll_fd) {
-	if (conversation->state >= bdd_conversation_accept) {
+	if (conversation->state == bdd_conversation_established) {
 		bdd_set_associated(conversation, NULL, NULL);
-		bdd_io_discard(&(conversation->client), epoll_fd);
 	}
-	if (conversation->state == bdd_conversation_ssl) {
-		bdd_io_discard(&(conversation->soac.server), -1);
-	}
-	if (conversation->state > bdd_conversation_ssl) {
-		bdd_io_discard(&(conversation->soac.server), epoll_fd);
+	if (conversation->state >= bdd_conversation_accept) {
+		for (size_t idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
+			bdd_io_discard(&(conversation->io_array[idx]));
+		}
 	}
 	if (conversation->state >= bdd_conversation_obtained) {
+		free(conversation->io_array);
+
 		pthread_mutex_lock(&(bdd_gv.available_conversations.mutex));
 
 		assert(bdd_gv.available_conversations.idx != 0);
