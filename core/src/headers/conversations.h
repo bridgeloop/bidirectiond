@@ -73,9 +73,9 @@ void bdd_conversation_discard(struct bdd_conversation *conversation);
 typeof(BIDIRECTIOND_N_IO) bdd_io_obtain(struct bdd_conversation *conversation);
 void bdd_io_discard(struct bdd_io *io);
 
-uint8_t bdd_io_id(struct bdd_io *io);
-struct bdd_io *bdd_io(struct bdd_conversation *conversation, uint8_t io_id);
+typeof(BIDIRECTIOND_N_IO) bdd_io_id(struct bdd_io *io);
+struct bdd_io *bdd_io(struct bdd_conversation *conversation, typeof(BIDIRECTIOND_N_IO) io_id);
 
-void bdd_io_apply_ssl(struct bdd_io *io, SSL *ssl);
+enum bdd_shutdown_status bdd_ssl_shutdown_continue(struct bdd_io *io);
 
 #endif

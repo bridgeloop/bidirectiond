@@ -81,16 +81,18 @@ static enum handle_io_status handle_io(struct bdd_io *io, uint32_t revents) {
 	}
 }
 
-static void discard_link(struct bdd_conversation **list, struct bdd_conversation *conversation) {
-	conversation->next = *list;
-	*list = conversation;
+static void process_link(struct bdd_conversation **list, struct bdd_conversation *conversation) {
+	if (conversation->n_ev == 1) {
+		conversation->next = *list;
+		*list = conversation;
+	}
 	return;
 }
 
 void *bdd_serve(struct bdd_worker_data *worker_data) {
 	pthread_sigmask(SIG_BLOCK, &(bdd_gv.sigmask), NULL);
 	unsigned short int next_worker_id = 0;
-	struct bdd_conversation *discard_list = NULL;
+	struct bdd_conversation *process_list = NULL;
 	struct bdd_tl *timeout_list = &(worker_data->timeout_list);
 	int epoll_fd = worker_data->epoll_fd;
 	struct epoll_event *events = worker_data->events;
@@ -119,70 +121,117 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 			continue;
 		}
 		struct bdd_conversation *conversation = io->conversation;
-		if (conversation->in_discard_list) {
-			continue;
+		if (!conversation->n_ev) {
+			bdd_tl_unlink(
+				timeout_list,
+				conversation
+			);
 		}
-		bdd_tl_unlink(
-			timeout_list,
-			conversation
-		);
-		enum bdd_cont (*function)(struct bdd_conversation *, int) = &(bdd_connect_continue);
 		switch (conversation->state) {
 			case (bdd_conversation_accept): {
-				function = &(bdd_accept_continue);
-			}
-			case (bdd_conversation_connect): {
-				switch (function(conversation, epoll_fd)) {
+				switch (bdd_accept_continue(conversation)) {
 					case (bdd_cont_discard): {
 						bdd_conversation_discard(conversation, epoll_fd);
-					}
-					case (bdd_cont_inprogress): {
-						break;
-					}
-					case (bdd_cont_established): {
-						goto established;
 					}
 				}
 				break;
 			}
 			case (bdd_conversation_established): {
-				established:;
-				switch (handle_io(io, event->events)) {
-					case (handle_io_discard): {
-						conversation->in_discard_list = 1;
-						discard_link(
-							&(discard_list),
-							conversation
-						);
-						break;
-					}
-					case (handle_io_hup): {
-						bdd_io_discard(io, epoll_fd);
-						if (bdd_io_opposite(conversation, io)->discarded) {
-							bdd_conversation_discard(conversation, epoll_fd);
-						}
-						break;
-					}
-					case (handle_io_lt): {
-						bdd_tl_link(
-							timeout_list,
-							conversation
-						);
-						break;
-					}
+				struct bdd_ev *ev = bdd_ev(conversation, conversation->n_ev++);
+				ev->io_id = bdd_io_id(io);
+				ev->events = (
+					(event->events & EPOLLIN ? bdd_ev_in : 0) |
+					(event->events & EPOLLOUT ? bdd_ev_out : 0) |
+					(event->events & EPOLLERR ? 8 : 0)
+				);
+				#ifndef NDEBUG
+				if (event->events & EPOLLERR) {
+					assert(event->events & EPOLLIN);
 				}
+				#endif
+				process_link(&(process_list), conversation);
 			}
 		}
 	}
 
 	if (bdd_gv.epoll_timeout >= 0) {
-		bdd_tl_process(timeout_list, epoll_fd);
+		bdd_tl_process(timeout_list);
 	}
 
-	while (discard_list != NULL) {
-		struct bdd_conversation *conversation = discard_list;
-		discard_list = conversation->next;
-		bdd_conversation_discard(conversation, epoll_fd);
+	while (process_list != NULL) {
+		struct bdd_conversation *conversation = process_list;
+		process_list = conversation->next;
+
+		bool any_connecting = conversation->n_connecting > 0;
+
+		for (size_t idx = 0; idx < conversation->n_ev;) {
+			struct bdd_ev *ev = bdd_ev(conversation, idx);
+			bool wr_err = ev->events & 8;
+			ev->events &= ~8;
+
+			struct bdd_io *io = bdd_io(conversation, ev->io_id);
+
+			if (io->state == bdd_io_connecting) {
+				switch (bdd_connect_continue(io)) {
+					case (bdd_cont_established): {
+						bdd_io_state(io, bdd_io_est);
+						break;
+					}
+					case (bdd_cont_discard): {
+						ev->events |= bdd_ev_removed;
+						bdd_io_discard(io);
+						break;
+					}
+				}
+			} else if (wr_err) {
+				assert(!(ev->events & bdd_ev_out));
+				if (bdd_io_hup(io, false)) {
+					ev->events |= bdd_ev_removed;
+					bdd_io_discard(io);
+				} else {
+					bdd_io_state(io, bdd_io_est);
+				}
+			} else if (ev->events & bdd_ev_out) {
+				if (io->state == bdd_io_est) {
+					bdd_io_epoll_mod(io, EPOLLOUT, 0, false);
+				} else if (io->state == bdd_io_ssl_shutting) {
+					if (bdd_ssl_shutdown_continue(io) == bdd_shutdown_complete) {
+						if (bdd_io_hup(io, false)) {
+							ev->events |= bdd_ev_removed;
+							bdd_io_discard(io);
+						} else {
+							bdd_io_state(io, bdd_io_est);
+						}
+					}
+					ev->events &= ~bdd_ev_out;
+				}
+			}
+
+			if (io->rdhup) {
+				ev->events &= ~bdd_ev_in;
+			}
+			#ifndef NDEBUG
+			if (io->wrhup && (ev->events & bdd_ev_out)) {
+				abort();
+			}
+			#endif
+			if (any_connecting) {
+				ev->events &= ~(bdd_ev_in | bdd_ev_out);
+			}
+			if (!ev->events) {
+				memmove(ev, &(ev[1]), (--conversation->n_ev - idx) * sizeof(struct bdd_ev));
+			} else {
+				idx += 1;
+			}
+		}
+
+		if (conversation->n_ev) {
+			conversation->sosi.service->handle_events(conversation);
+		}
+
+		if (conversation->n_in_epoll_with_events == 0) {
+			bdd_conversation_discard(conversation);
+		}
 	}
 
 	goto epoll;

@@ -193,7 +193,7 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_conversation *conversat
 	return r;
 }
 
-enum bdd_cont bdd_accept_continue(struct bdd_conversation *conversation, int epoll_fd) {
+enum bdd_cont bdd_accept_continue(struct bdd_conversation *conversation) {
 	struct bdd_io *io = conversation->io_array;
 	SSL_CTX *ssl_ctx = SSL_get_SSL_CTX(io->io.ssl);
 	SSL_CTX_set_client_hello_cb(ssl_ctx, (void *)bdd_hello_cb, conversation);

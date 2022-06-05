@@ -157,6 +157,8 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 		bdd_io_epoll_mod(idx_io, EPOLLOUT, epollin, false);
 		if (conversation->n_connecting == 0) {
 			bdd_io_epoll_add(idx_io);
+		} else {
+			bdd_io_epoll_remove(idx_io);
 		}
 	} else if (new_state == bdd_io_ssl_shutting) {
 		bdd_io_epoll_mod(idx_io, 0, EPOLLOUT, false);
@@ -345,6 +347,9 @@ enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, 
 	if (bdd_io_hup(io, false)) {
 		bdd_io_discard(io);
 		return bdd_shutdown_discard;
+	}
+	if (io->ssl) {
+		bdd_io_state(io, bdd_io_est);
 	}
 	return bdd_shutdown_complete;
 }

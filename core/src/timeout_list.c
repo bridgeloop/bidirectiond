@@ -53,7 +53,7 @@ void bdd_tl_unlink(struct bdd_tl *timeout_list, struct bdd_conversation *convers
 	return;
 }
 
-void bdd_tl_process(struct bdd_tl *timeout_list, int epoll_fd) {
+void bdd_tl_process(struct bdd_tl *timeout_list) {
 	for (;;) {
 		struct bdd_conversation *conversation = timeout_list->head;
 		if (conversation == NULL) {
@@ -67,7 +67,7 @@ void bdd_tl_process(struct bdd_tl *timeout_list, int epoll_fd) {
 		if (timeout_list->head != NULL) {
 			timeout_list->head->prev = NULL;
 		}
-		bdd_conversation_discard(conversation, epoll_fd);
+		bdd_conversation_discard(conversation);
 	}
 	return;
 }

@@ -11,7 +11,7 @@ struct bdd_tl {
 
 void bdd_tl_unlink(struct bdd_tl *timeout_list, struct bdd_conversation *conversation);
 void bdd_tl_link(struct bdd_tl *timeout_list, struct bdd_conversation *conversation);
-void bdd_tl_process(struct bdd_tl *timeout_list, int epoll_fd);
+void bdd_tl_process(struct bdd_tl *timeout_list);
 
 void bdd_tl_init(struct bdd_tl *timeout_list);
 
