@@ -13,32 +13,73 @@
 #include <stdbool.h>
 
 static uint8_t serve(struct bdd_conversation *conversation, uint8_t from, uint8_t to) {
-	unsigned char buf[0x200];
+	unsigned char buf[0x400];
 	for (;;) {
 		ssize_t n = bdd_io_read(conversation, from, buf, sizeof(buf));
-		if (n == -2) {
-			return 1;
+		if (n <= -2) {
+			return 2;
 		}
 		if (n == -1) {
-			return 0;
+			return 1;
 		}
 		if (n == 0) {
 			return 0;
 		}
 		if (bdd_io_write(conversation, to, buf, n) != n) {
-			return 0;
+			return 1;
 		}
 	}
 }
 
-void general_service__handle_events(struct bdd_conversation *conversation, uint8_t io_id, uint8_t events) {
-	if (events & BDDEV_IN) {
-		if (serve(conversation, io_id, io_id ^ 1)) {
-			bdd_io_shutdown(conversation, io_id ^ 1);
+#define gs_clsv(io_id) (io_id == 0 ? 0 : 3)
+
+#define gs_rdhup 1
+#define gs_called_shutdown 2
+#define gs_wrhup 4
+
+void general_service__handle_events(struct bdd_conversation *conversation) {
+	size_t n_ev = bdd_n_ev(conversation);
+	for (size_t idx = 0; idx < n_ev; ++idx) {
+		struct bdd_ev *ev = bdd_ev(conversation, idx);
+		if (ev->events & bdd_ev_removed) {
+			uintptr_t a = (uintptr_t)bdd_get_associated(conversation);
+			bool c = true;
+			if (!(a & (gs_rdhup << gs_clsv(ev->io_id)))) {
+				c = false;
+			}
+			if (!(a & (gs_called_shutdown << gs_clsv(ev->io_id)))) {
+				c = false;
+			}
+			if (c) {
+				a |= (gs_wrhup << gs_clsv(ev->io_id));
+			} else {
+				goto err;
+			}
+		} else if (ev->events & bdd_ev_in) {
+			switch (serve(conversation, ev->io_id, ev->io_id ^ 1)) {
+				case (2): {
+					uintptr_t a = (uintptr_t)bdd_get_associated(conversation);
+					a |= (gs_rdhup << gs_clsv(ev->io_id));
+					a |= (gs_called_shutdown << gs_clsv(ev->io_id ^ 1));
+					bdd_set_associated(conversation, (void *)a, NULL);
+					if (bdd_io_shutdown(conversation, ev->io_id ^ 1) != bdd_shutdown_inprogress) {
+						 a |= (gs_wrhup << gs_clsv(ev->io_id ^ 1));
+					}
+					break;
+				}
+				case (1): {
+					goto err;
+				}
+			}
 		}
 	}
 	return;
+
+	err:;
+	bdd_conversation_remove_later(conversation);
+	return;
 }
+
 struct general_service__info {
 	struct addrinfo *addrinfo;
 	const char *ssl_name;
@@ -53,13 +94,19 @@ bool general_service__conversation_init(
 	const struct general_service__info *info = service_info;
 	struct addrinfo *addrinfo = info->addrinfo;
 	for (; addrinfo != NULL; addrinfo = addrinfo->ai_next) {
+		bdd_io_id io_id;
+		if (!bdd_io_obtain(conversation, &(io_id))) {
+			return false;
+		}
+
 		if (info->ssl_name != NULL) {
-			if (!bdd_prep_ssl(conversation, (void *)info->ssl_name, NULL)) {
-				return true;
+			if (!bdd_io_prep_ssl(conversation, io_id, (void *)info->ssl_name, NULL)) {
+				return false;
 			}
 		}
 
-		if (bdd_connect(conversation, AF_INET, addrinfo->ai_addr, addrinfo->ai_addrlen)) {
+		if (bdd_io_connect(conversation, io_id, addrinfo->ai_addr, addrinfo->ai_addrlen)) {
+			bdd_set_associated(conversation, 0, NULL);
 			return true;
 		}
 	}

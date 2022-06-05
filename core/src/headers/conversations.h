@@ -46,6 +46,8 @@ struct bdd_conversation {
 
 	bdd_io_id n_ev;
 
+	bool remove;
+
 	union {
 		struct bdd_associated associated;
 		struct {
@@ -84,7 +86,5 @@ void bdd_io_epoll_add(struct bdd_io *io);
 void bdd_io_epoll_remove(struct bdd_io *io);
 bool bdd_io_hup(struct bdd_io *io, bool rdhup);
 void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state);
-
-struct bdd_ev *bdd_ev(struct bdd_conversation *conversation, bdd_io_id io_id);
 
 #endif

@@ -40,6 +40,11 @@ int bdd_conversation_id(struct bdd_conversation *conversation) {
 	return (((char *)conversation - (char *)(bdd_gv.conversations)) / sizeof(struct bdd_conversation));
 }
 
+void bdd_conversation_remove_later(struct bdd_conversation *conversation) {
+	conversation->remove = true;
+	return;
+}
+
 struct bdd_ev *bdd_ev(struct bdd_conversation *conversation, bdd_io_id idx) {
 	if (idx >= conversation->n_ev) {
 		abort();
@@ -81,6 +86,7 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 	conversation->n_connecting = 0;
 	conversation->n_in_epoll_with_events = 0;
 	conversation->n_ev = 0;
+	conversation->remove = false;
 	conversation->aopn.pn.protocol_name = NULL;
 	conversation->aopn.pn.cstr_protocol_name = NULL;
 	return conversation;

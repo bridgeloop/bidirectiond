@@ -42,7 +42,7 @@ def append_service(service):
 	value = service[key]
 	if type(value) != str:
 		raise Exception("error")
-	declarations += f"void {value}(struct bdd_conversation *conversation, uint8_t io_id, uint8_t events);"
+	declarations += f"void {value}(struct bdd_conversation *conversation);"
 	service_str += f".{key} = &({value}),"
 	#
 	key = "supported_protocols"

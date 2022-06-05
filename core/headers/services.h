@@ -28,14 +28,15 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 	ssize_t sz
 );
 
-bool bdd_io_obtain(struct bdd_conversation *conversation, bdd_io_id *io_id)
+bool bdd_io_obtain(struct bdd_conversation *conversation, bdd_io_id *io_id);
 bool bdd_io_connect(struct bdd_conversation *conversation, bdd_io_id io_id, struct sockaddr *addr, socklen_t addrlen);
 bool bdd_io_prep_ssl(
 	struct bdd_conversation *conversation,
+	bdd_io_id io_id,
 	char *ssl_name,
 	char *alp
 );
-void bdd_io_set_associated(
+void bdd_set_associated(
 	struct bdd_conversation *conversation,
 	void *data,
 	void (*destructor)(void *)
@@ -50,5 +51,7 @@ bool bdd_name_descs_add_service_instance(
 );
 
 enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, bdd_io_id io_id);
+
+void bdd_conversation_remove_later(struct bdd_conversation *conversation);
 
 #endif
