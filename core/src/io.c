@@ -355,8 +355,8 @@ enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, 
 }
 
 void bdd_io_discard(struct bdd_io *io) {
-	enum bdd_io_state = io->state;
-	if (state == bdd_io_state_unused) {
+	enum bdd_io_state state = io->state;
+	if (state == bdd_io_unused) {
 		return;
 	}
 	bdd_io_state(io, bdd_io_unused);
@@ -471,7 +471,7 @@ enum bdd_cont bdd_io_connect(
 					return bdd_cont_inprogress;
 				}
 				case (bdd_cont_established): {
-					bdd_io_state(io, bdd_io_established);
+					bdd_io_state(io, bdd_io_est);
 					return bdd_cont_established;
 				}
 			}

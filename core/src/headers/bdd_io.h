@@ -30,7 +30,7 @@ struct bdd_io {
 
 		in_epoll : 1;
 
-	uint32_t epoll_flags;
+	uint32_t epoll_events;
 
 	union {
 		int fd;

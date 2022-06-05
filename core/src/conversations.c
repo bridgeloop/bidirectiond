@@ -40,7 +40,7 @@ int bdd_conversation_id(struct bdd_conversation *conversation) {
 }
 
 struct bdd_ev *bdd_ev(struct bdd_conversation *conversation, typeof(BIDIRECTIOND_N_IO) idx) {
-	if (idx >= conversation->ev_idx) {
+	if (idx >= conversation->n_ev) {
 		abort();
 	}
 	return &(((struct bdd_ev *)&(conversation->io_array[BIDIRECTIOND_N_IO]))[idx]);
