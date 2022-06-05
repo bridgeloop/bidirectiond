@@ -12,6 +12,7 @@
 #include "headers/conversations.h"
 #include "headers/bdd_service.h"
 #include "headers/bdd_io.h"
+#include "headers/bdd_event.h"
 
 void *bdd_get_associated(struct bdd_conversation *conversation) {
 	return conversation->aopn.associated.data;
@@ -39,13 +40,13 @@ int bdd_conversation_id(struct bdd_conversation *conversation) {
 	return (((char *)conversation - (char *)(bdd_gv.conversations)) / sizeof(struct bdd_conversation));
 }
 
-struct bdd_ev *bdd_ev(struct bdd_conversation *conversation, typeof(BIDIRECTIOND_N_IO) idx) {
+struct bdd_ev *bdd_ev(struct bdd_conversation *conversation, bdd_io_id idx) {
 	if (idx >= conversation->n_ev) {
 		abort();
 	}
 	return &(((struct bdd_ev *)&(conversation->io_array[BIDIRECTIOND_N_IO]))[idx]);
 }
-typeof(BIDIRECTIOND_N_IO) bdd_n_ev(struct bdd_conversation *conversation) {
+bdd_io_id bdd_n_ev(struct bdd_conversation *conversation) {
 	return conversation->n_ev;
 }
 
@@ -84,7 +85,7 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 	conversation->aopn.pn.cstr_protocol_name = NULL;
 	return conversation;
 }
-void bdd_conversation_discard(struct bdd_conversation *conversation, int epoll_fd) {
+void bdd_conversation_discard(struct bdd_conversation *conversation) {
 	if (conversation->state == bdd_conversation_established) {
 		bdd_set_associated(conversation, NULL, NULL);
 	}

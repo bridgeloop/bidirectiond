@@ -14,13 +14,14 @@
 #include "headers/conversations.h"
 #include "headers/bdd_service.h"
 #include "headers/bdd_io.h"
+#include "headers/bidirectiond_n_io.h"
 
-typeof(BIDIRECTIOND_N_IO) bdd_io_id(struct bdd_io *io) {
+bdd_io_id bdd_io_id_of(struct bdd_io *io) {
 	struct bdd_conversation *conversation = io->conversation;
 	return (((char *)io - (char *)conversation->io_array) / sizeof(struct bdd_io));
 }
 
-struct bdd_io *bdd_io(struct bdd_conversation *conversation, typeof(BIDIRECTIOND_N_IO) io_id) {
+struct bdd_io *bdd_io(struct bdd_conversation *conversation, bdd_io_id io_id) {
 	if (conversation == NULL || io_id >= BIDIRECTIOND_N_IO) {
 		return NULL;
 	}
@@ -36,14 +37,14 @@ int bdd_io_fd(struct bdd_io *io) {
 	}
 }
 
-void bdd_io_epoll_mod(struct bdd_io *io, uint32_t remove_flags, uint32_t add_flags, bool edge_trigger) {
+void bdd_io_epoll_mod(struct bdd_io *io, uint32_t add_events, uint32_t remove_events, bool edge_trigger) {
 	uint32_t old_events = io->epoll_events;
-	io->epoll_events &= ~remove_flags;
+	io->epoll_events &= ~remove_events;
 	if (io->rdhup) {
-		add_flags &= ~EPOLLIN;
+		add_events &= ~EPOLLIN;
 	}
 	io->epoll_events |= add_events;
-	if (io->edge_trigger) {
+	if (edge_trigger) {
 		io->epoll_events |= EPOLLET;
 	} else {
 		io->epoll_events &= ~EPOLLET;
@@ -54,7 +55,7 @@ void bdd_io_epoll_mod(struct bdd_io *io, uint32_t remove_flags, uint32_t add_fla
 	}
 	#endif
 	if (io->in_epoll) {
-		if (((old_events & ~EPOLLET) == 0) {
+		if ((old_events & ~EPOLLET) == 0) {
 			if ((io->epoll_events & ~EPOLLET) != 0) {
 				io->conversation->n_in_epoll_with_events += 1;
 			}
@@ -87,7 +88,7 @@ void bdd_io_epoll_add(struct bdd_io *io) {
 }
 
 void bdd_io_epoll_remove(struct bdd_io *io) {
-	if (!io->in_epoll) {
+	if (!io->in_epoll || io->conversation->epoll_fd < 0) {
 		return;
 	}
 	io->in_epoll = 0;
@@ -114,8 +115,8 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 
 	if (state == bdd_io_connecting) {
 		if (conversation->n_connecting) {
-			for (typeof(BIDIRECTIOND_N_IO) idx = 0; idx <= conversation->n_servers; ++idx) {
-				struct bdd_io *idx_io = bdd_io(idx);
+			for (bdd_io_id idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
+				struct bdd_io *idx_io = bdd_io(conversation, idx);
 				if (idx_io == io || (idx_io->state != bdd_io_est && idx_io->state != bdd_io_ssl_shutting)) {
 					continue;
 				}
@@ -134,8 +135,8 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 
 	if (new_state == bdd_io_connecting) {
 		if (conversation->n_connecting == 0) {
-			for (typeof(BIDIRECTIOND_N_IO) idx = 0; idx <= conversation->n_servers; ++idx) {
-				struct bdd_io *idx_io = bdd_io(idx);
+			for (bdd_io_id idx = 0; idx < BIDIRECTIOND_N_IO; +idx) {
+				struct bdd_io *idx_io = bdd_io(conversation, idx);
 				if (idx_io == io || idx_io->state == bdd_io_connecting) {
 					continue;
 				}
@@ -147,24 +148,24 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 			}
 		}
 		conversation->n_connecting += 1;
-		bdd_io_epoll_mod(idx_io, 0, EPOLLIN | EPOLLOUT, true);
-		bdd_io_epoll_add(idx_io);
+		bdd_io_epoll_mod(io, 0, EPOLLIN | EPOLLOUT, true);
+		bdd_io_epoll_add(io);
 	} else if (new_state == bdd_io_est) {
 		uint32_t epollin = EPOLLIN;
 		if (io->rdhup) {
 			epollin = 0;
 		}
-		bdd_io_epoll_mod(idx_io, EPOLLOUT, epollin, false);
+		bdd_io_epoll_mod(io, EPOLLOUT, epollin, false);
 		if (conversation->n_connecting == 0) {
-			bdd_io_epoll_add(idx_io);
+			bdd_io_epoll_add(io);
 		} else {
-			bdd_io_epoll_remove(idx_io);
+			bdd_io_epoll_remove(io);
 		}
 	} else if (new_state == bdd_io_ssl_shutting) {
-		bdd_io_epoll_mod(idx_io, 0, EPOLLOUT, false);
-		bdd_io_epoll_add(idx_io);
+		bdd_io_epoll_mod(io, 0, EPOLLOUT, false);
+		bdd_io_epoll_add(io);
 	} else {
-		bdd_io_epoll_remove(idx_io);
+		bdd_io_epoll_remove(io);
 	}
 
 	return;
@@ -173,7 +174,7 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 // returns the number of bytes read (where 0 is a possible value), returns -3 on rdhup, returns -2 if IO discarded, returns -1 on err,
 __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 	struct bdd_conversation *conversation,
-	typeof(BIDIRECTIOND_N_IO) io_id,
+	bdd_io_id io_id,
 	void *buf,
 	ssize_t sz
 ) {
@@ -205,7 +206,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 			} else if (err == SSL_ERROR_WANT_WRITE) {
 				abort(); // fuck re-negotiation
 			} else if (err == SSL_ERROR_ZERO_RETURN /* received close_notify */) {
-				if (bdd_io_set_hup(io, true)) {
+				if (bdd_io_hup(io, true)) {
 					bdd_io_discard(io);
 					return -2;
 				}
@@ -234,7 +235,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 			return -2;
 		}
 		if (r == 0) {
-			if (bdd_io_set_hup(io, true)) {
+			if (bdd_io_hup(io, true)) {
 				bdd_io_discard(io);
 				return -2;
 			}
@@ -247,7 +248,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 // returns the number of bytes written, returns -2 if IO discarded, returns -1 on err
 __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 	struct bdd_conversation *conversation,
-	typeof(BIDIRECTIOND_N_IO) io_id,
+	bdd_io_id io_id,
 	void *buf,
 	ssize_t sz
 ) {
@@ -279,7 +280,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 				bdd_io_epoll_mod(io, 0, EPOLLOUT, false);
 				return 0;
 			}
-			if (bdd_io_set_hup(io, false)) {
+			if (bdd_io_hup(io, false)) {
 				return -2;
 			}
 			return -1;
@@ -294,7 +295,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 				bdd_io_epoll_mod(io, 0, EPOLLOUT, false);
 				return 0;
 			}
-			if (bdd_io_set_hup(io, false)) {
+			if (bdd_io_hup(io, false)) {
 				return -2;
 			}
 			return -1;
@@ -304,6 +305,18 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 		}
 	}
 	return r;
+}
+
+bool bdd_io_obtain(struct bdd_conversation *conversation, bdd_io_id *io_id) {
+	for (size_t idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
+		struct bdd_io *io = &(conversation->io_array[idx]);
+		if (io->state == bdd_io_unused) {
+			bdd_io_state(io, bdd_io_obtained);
+			*io_id = (bdd_io_id)idx;
+			return true;
+		}
+	}
+	return false;
 }
 
 enum bdd_shutdown_status bdd_ssl_shutdown_continue(struct bdd_io *io) {
@@ -323,7 +336,7 @@ enum bdd_shutdown_status bdd_ssl_shutdown_continue(struct bdd_io *io) {
 	return bdd_shutdown_complete;
 }
 
-enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, typeof(BIDIRECTIOND_N_IO) io_id) {
+enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, bdd_io_id io_id) {
 	struct bdd_io *io = bdd_io(conversation, io_id);
 	if (io == NULL) {
 		fputs("programming error: bdd_io_shutdown called with invalid arguments\n", stderr);
@@ -335,11 +348,9 @@ enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, 
 	}
 
 	if (io->ssl) {
-		bdd_io_state(io, bdd_io_ssl_shutdown);
-		if (bdd_io_shutdown_continue(io)): {
-			case (bdd_shutdown_inprogress): {
-				return bdd_shutdown_inprogress;
-			}
+		bdd_io_state(io, bdd_io_ssl_shutting);
+		if (bdd_ssl_shutdown_continue(io) == bdd_shutdown_inprogress) {
+			return bdd_shutdown_inprogress;
 		}
 	} else {
 		shutdown(bdd_io_fd(io), SHUT_WR);
@@ -366,7 +377,7 @@ void bdd_io_discard(struct bdd_io *io) {
 			io->ssl &&
 			io->rdhup &&
 			io->wrhup &&
-			(SSL_get_shutdown(io->io.ssl) & SSL_SENT_SHUT)
+			(SSL_get_shutdown(io->io.ssl) & SSL_SENT_SHUTDOWN)
 		) {
 			SSL_shutdown(io->io.ssl);
 			shutdown(fd, SHUT_WR);
@@ -379,8 +390,8 @@ void bdd_io_discard(struct bdd_io *io) {
 	return;
 }
 
-bool bdd_io_prep_ssl(struct bdd_conversation *conversation, typeof(BIDIRECTIOND_N_IO) io_id, char *ssl_name, char *alp) {
-	struct bdd_io *io = bdd_io(conversation, io);
+bool bdd_io_prep_ssl(struct bdd_conversation *conversation, bdd_io_id io_id, char *ssl_name, char *alp) {
+	struct bdd_io *io = bdd_io(conversation, io_id);
 	if (io == NULL || io->state != bdd_io_obtained) {
 		fputs("programming error: bdd_io_prep_ssl called with an io_id which is in an invalid state\n", stderr);
 		abort();
@@ -439,11 +450,11 @@ bool bdd_io_prep_ssl(struct bdd_conversation *conversation, typeof(BIDIRECTIOND_
 
 enum bdd_cont bdd_io_connect(
 	struct bdd_conversation *conversation,
-	typeof(BIDIRECTIOND_N_IO) io_id,
+	bdd_io_id io_id,
 	struct sockaddr *sockaddr,
 	socklen_t addrlen
 ) {
-	struct bdd_io *io = bdd_io(conversation, io);
+	struct bdd_io *io = bdd_io(conversation, io_id);
 	if (io == NULL || (io->state != bdd_io_obtained && io->state != bdd_io_prepd_ssl)) {
 		fputs("programming error: bdd_io_connect called with an io_id which is in an invalid state\n", stderr);
 		abort();

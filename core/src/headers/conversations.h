@@ -8,6 +8,8 @@
 #include <sys/socket.h>
 
 #include "bdd_io.h"
+#include "bdd_shutdown_status.h"
+#include "bidirectiond_n_io.h"
 
 struct bdd_service;
 struct bdd_io;
@@ -39,10 +41,10 @@ struct bdd_conversation {
 
 	struct bdd_io *io_array;
 
-	typeof(BIDIRECTIOND_N_IO) n_connecting;
-	typeof(BIDIRECTIOND_N_IO) n_in_epoll_with_events;
+	bdd_io_id n_connecting;
+	bdd_io_id n_in_epoll_with_events;
 
-	typeof(BIDIRECTIOND_N_IO) n_ev;
+	bdd_io_id n_ev;
 
 	union {
 		struct bdd_associated associated;
@@ -70,12 +72,19 @@ enum bdd_conversation_init_status bdd_conversation_init(
 int bdd_io_fd(struct bdd_io *io);
 struct bdd_conversation *bdd_conversation_obtain(int epoll_fd);
 void bdd_conversation_discard(struct bdd_conversation *conversation);
-typeof(BIDIRECTIOND_N_IO) bdd_io_obtain(struct bdd_conversation *conversation);
 void bdd_io_discard(struct bdd_io *io);
 
-typeof(BIDIRECTIOND_N_IO) bdd_io_id(struct bdd_io *io);
-struct bdd_io *bdd_io(struct bdd_conversation *conversation, typeof(BIDIRECTIOND_N_IO) io_id);
+bdd_io_id bdd_io_id_of(struct bdd_io *io);
+struct bdd_io *bdd_io(struct bdd_conversation *conversation, bdd_io_id io_id);
 
 enum bdd_shutdown_status bdd_ssl_shutdown_continue(struct bdd_io *io);
+
+void bdd_io_epoll_mod(struct bdd_io *io, uint32_t add_events, uint32_t remove_events, bool edge_trigger);
+void bdd_io_epoll_add(struct bdd_io *io);
+void bdd_io_epoll_remove(struct bdd_io *io);
+bool bdd_io_hup(struct bdd_io *io, bool rdhup);
+void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state);
+
+struct bdd_ev *bdd_ev(struct bdd_conversation *conversation, bdd_io_id io_id);
 
 #endif

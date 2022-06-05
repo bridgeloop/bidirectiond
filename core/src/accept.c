@@ -263,7 +263,7 @@ enum bdd_cont bdd_connect_continue(struct bdd_io *io) {
 }
 
 void bdd_accept(struct bdd_worker_data *worker_data) {
-	struct bdd_conversation *conversation = bdd_conversation_obtain();
+	struct bdd_conversation *conversation = bdd_conversation_obtain(worker_data->epoll_fd);
 	if (conversation == NULL) {
 		return;
 	}

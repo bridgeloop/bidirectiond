@@ -111,7 +111,8 @@ void bdd_destroy(void) {
 		++idx
 	) {
 		struct bdd_conversation *conversation = &(bdd_gv.conversations[idx]);
-		bdd_conversation_discard(conversation, -1);
+		conversation->epoll_fd = -1;
+		bdd_conversation_discard(conversation);
 	}
 
 	free(bdd_gv.conversations);

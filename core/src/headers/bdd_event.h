@@ -6,7 +6,7 @@
 #define bdd_ev_removed 4
 
 struct bdd_ev {
-	enum bdd_ev ev;
+	uint8_t events;
 	uint8_t io_id;
 };
 

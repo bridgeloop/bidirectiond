@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <string.h>
 #include <stdbool.h>
 
 #include "headers/instance.h"
@@ -15,71 +16,11 @@
 #include "headers/unlikely.h"
 #include "headers/bdd_event.h"
 #include "headers/bdd_io.h"
+#include "headers/bidirectiond_n_io.h"
 #include "headers/bdd_service.h"
 #include "headers/bdd_stop.h"
-
-enum handle_io_status {
-	handle_io_discard,
-	handle_io_hup,
-	handle_io_lt,
-};
-static enum handle_io_status handle_io(struct bdd_io *io, uint32_t revents) {
-	struct bdd_conversation *conversation = io->conversation;
-	unsigned char bdd_revents = 0;
-
-	if (revents & EPOLLERR) {
-		io->state = BDD_IO_ERR;
-	} else if (io->state == BDD_IO_SSL_SHUTTING) {
-		if (bdd_ssl_shutdown_continue(io) == bdd_cont_discard) {
-			io->state = BDD_IO_ERR;
-		}
-	}
-	if ((revents & EPOLLIN) && !io->rdhup) {
-		bdd_revents |= BDDEV_IN;
-	}
-	if (revents & EPOLLOUT) {
-		if (io->state == bdd_io_est) {
-			bdd_revents |= bdd_ev_out;
-			bdd_io_epoll_flags(io, EPOLLOUT, 0);
-		} else if (io->state == BDD_IO_SSL_SHUTTING) {
-			switch (bdd_ssl_shutdown_continue(io)) {
-				case (bdd_cont_established): {
-					bdd_io_epoll_flags(io, EPOLLOUT, 0);
-					break;
-				}
-				case (bdd_cont_discard): {
-					bdd_io_epoll_remove(io);
-					break;
-				}
-			}
-		} else {
-			abort();
-		}
-	}
-	if (io->state == BDD_IO_ERR) {
-		bdd_revents |= BDDEV_NOOUT;
-	}
-
-	if (bdd_revents & ~BDDEV_NOOUT) {
-		conversation->sosi.service->handle_events(conversation, bdd_io_id(conversation, io), bdd_revents);
-	}
-
-	assert(conversation->client.state >= bdd_io_est);
-
-	if (conversation->client.state >= bdd_io_err) {
-		// discard conversation
-	}
-
-	if (
-		((
-			conversation->client.rdhup &&
-			!(conversation->client.epoll_flags & EPOLLOUT)
-		) || !conversation->client.in_epoll) &&
-		conversation->n_servers_in_epoll == 0
-	) {
-		abort();
-	}
-}
+#include "headers/bdd_event.h"
+#include "headers/bdd_shutdown_status.h"
 
 static void process_link(struct bdd_conversation **list, struct bdd_conversation *conversation) {
 	if (conversation->n_ev == 1) {
@@ -129,16 +70,14 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 		}
 		switch (conversation->state) {
 			case (bdd_conversation_accept): {
-				switch (bdd_accept_continue(conversation)) {
-					case (bdd_cont_discard): {
-						bdd_conversation_discard(conversation, epoll_fd);
-					}
+				if (bdd_accept_continue(conversation) == bdd_cont_discard) {
+					bdd_conversation_discard(conversation);
 				}
 				break;
 			}
 			case (bdd_conversation_established): {
 				struct bdd_ev *ev = bdd_ev(conversation, conversation->n_ev++);
-				ev->io_id = bdd_io_id(io);
+				ev->io_id = bdd_io_id_of(io);
 				ev->events = (
 					(event->events & EPOLLIN ? bdd_ev_in : 0) |
 					(event->events & EPOLLOUT ? bdd_ev_out : 0) |

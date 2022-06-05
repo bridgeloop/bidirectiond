@@ -2,15 +2,10 @@
 #define bidirectiond_core__accept__h
 
 #include <hashmap/hashmap.h>
+#include "bdd_cont.h"
 
 struct bdd_conversation;
 struct bdd_io;
-
-enum bdd_cont {
-	bdd_cont_discard,
-	bdd_cont_inprogress,
-	bdd_cont_established,
-};
 
 int bdd_alpn_cb(
 	SSL *client_ssl,
