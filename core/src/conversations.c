@@ -14,7 +14,7 @@
 #include "headers/bdd_io.h"
 
 void *bdd_get_associated(struct bdd_conversation *conversation) {
-	return conversation->associated.data;
+	return conversation->aopn.associated.data;
 }
 void bdd_set_associated(
 	struct bdd_conversation *conversation,
@@ -22,16 +22,16 @@ void bdd_set_associated(
 	void (*destructor)(void *)
 ) {
 	assert(conversation != NULL);
-	if (conversation->associated.destructor != NULL) {
-		conversation->associated.destructor(conversation->associated.data);
+	if (conversation->aopn.associated.destructor != NULL) {
+		conversation->aopn.associated.destructor(conversation->aopn.associated.data);
 	}
 #ifndef NDEBUG
 	if (data != NULL || destructor != NULL) {
 		assert(data != NULL && destructor != NULL);
 	}
 #endif
-	conversation->associated.data = data;
-	conversation->associated.destructor = destructor;
+	conversation->aopn.associated.data = data;
+	conversation->aopn.associated.destructor = destructor;
 	return;
 }
 
@@ -39,11 +39,26 @@ int bdd_conversation_id(struct bdd_conversation *conversation) {
 	return (((char *)conversation - (char *)(bdd_gv.conversations)) / sizeof(struct bdd_conversation));
 }
 
-struct bdd_conversation *bdd_conversation_obtain(void) {
+struct bdd_ev *bdd_ev(struct bdd_conversation *conversation, typeof(BIDIRECTIOND_N_IO) idx) {
+	if (idx >= conversation->ev_idx) {
+		abort();
+	}
+	return &(((struct bdd_ev *)&(conversation->io_array[BIDIRECTIOND_N_IO]))[idx]);
+}
+typeof(BIDIRECTIOND_N_IO) bdd_n_ev(struct bdd_conversation *conversation) {
+	return conversation->n_ev;
+}
+
+struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
+	struct bdd_io *io_array = malloc((sizeof(struct bdd_io) * BIDIRECTIOND_N_IO) + (sizeof(struct bdd_ev) * BIDIRECTIOND_N_IO));
+	if (io_array == NULL) {
+		return NULL;
+	}
 	struct bdd_conversation *conversation;
 	pthread_mutex_lock(&(bdd_gv.available_conversations.mutex));
 	if (atomic_load(&(bdd_gv.exiting)) || bdd_gv.available_conversations.idx == bdd_gv.n_conversations) {
 		pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
+		free(io_array);
 		return NULL;
 	}
 	int id = bdd_gv.available_conversations.ids[bdd_gv.available_conversations.idx++];
@@ -56,13 +71,14 @@ struct bdd_conversation *bdd_conversation_obtain(void) {
 	pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
 	conversation = &(bdd_gv.conversations[id]);
 	conversation->state = bdd_conversation_obtained;
+	conversation->epoll_fd = -1;
 	conversation->sosi.service_instance = NULL;
-	bdd_io_init(conversation, &(conversation->client));
-	conversation->soac.ac.protocol_name = NULL;
-	conversation->soac.ac.cstr_protocol_name = NULL;
-	conversation->associated.data = NULL;
-	conversation->associated.destructor = NULL;
-	conversation->in_discard_list = 0;
+	conversation->io_array = io_array;
+	conversation->n_connecting = 0;
+	conversation->n_in_epoll_with_events = 0;
+	conversation->n_ev = 0;
+	conversation->aopn.pn.protocol_name = NULL;
+	conversation->aopn.pn.cstr_protocol_name = NULL;
 	return conversation;
 }
 void bdd_conversation_discard(struct bdd_conversation *conversation, int epoll_fd) {

@@ -286,7 +286,7 @@ bool bdd_name_descs_use_cert_pkey(
 }
 
 struct bdd_name_descs *bdd_name_descs_create(void) {
-	return (struct bdd_name_descs *)hashmap_create(183, 1, (void *)&(bdd_name_desc_destroy_hm));
+	return (struct bdd_name_descs *)hashmap_create(183, 16, (void *)&(bdd_name_desc_destroy_hm));
 }
 
 void bdd_name_descs_destroy(struct bdd_name_descs **name_descs) {

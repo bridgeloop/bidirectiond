@@ -21,14 +21,12 @@ enum bdd_conversation_state {
 	bdd_conversation_unused,
 	bdd_conversation_obtained,
 	bdd_conversation_accept,
-	bdd_conversation_ssl,
-	bdd_conversation_connect,
-	bdd_conversation_ssl_connect,
 	bdd_conversation_established,
 };
 
 struct bdd_conversation {
 	enum bdd_conversation_state state;
+	int epoll_fd;
 
 	struct bdd_conversation *next;
 	struct bdd_conversation *prev;
@@ -39,18 +37,20 @@ struct bdd_conversation {
 		struct bdd_service_instance *service_instance;
 	} sosi;
 
-	struct bdd_io client;
+	struct bdd_io *io_array;
+
+	typeof(BIDIRECTIOND_N_IO) n_connecting;
+	typeof(BIDIRECTIOND_N_IO) n_in_epoll_with_events;
+
+	typeof(BIDIRECTIOND_N_IO) n_ev;
+
 	union {
-		struct bdd_io server;
+		struct bdd_associated associated;
 		struct {
 			const unsigned char *protocol_name;
 			const char *cstr_protocol_name;
-		} ac;
-	} soac;
-
-	struct bdd_associated associated;
-
-	bool in_discard_list; // bdd_serve
+		} pn;
+	} aopn;
 };
 
 enum bdd_conversation_init_status {
@@ -67,15 +67,14 @@ enum bdd_conversation_init_status bdd_conversation_init(
 	const void *instance_info
 );
 
-int bdd_io_internal_fd(struct bdd_io *io);
-struct bdd_conversation *bdd_conversation_obtain(void);
-void bdd_conversation_discard(struct bdd_conversation *conversation, int epoll_fd);
-void bdd_io_init(struct bdd_conversation *conversation, struct bdd_io *io);
-void bdd_io_discard(struct bdd_io *io, int epoll_fd);
+int bdd_io_fd(struct bdd_io *io);
+struct bdd_conversation *bdd_conversation_obtain(int epoll_fd);
+void bdd_conversation_discard(struct bdd_conversation *conversation);
+typeof(BIDIRECTIOND_N_IO) bdd_io_obtain(struct bdd_conversation *conversation);
+void bdd_io_discard(struct bdd_io *io);
 
-uint8_t bdd_io_id(struct bdd_conversation *conversation, struct bdd_io *io);
+uint8_t bdd_io_id(struct bdd_io *io);
 struct bdd_io *bdd_io(struct bdd_conversation *conversation, uint8_t io_id);
-struct bdd_io *bdd_io_opposite(struct bdd_conversation *conversation, struct bdd_io *io);
 
 void bdd_io_apply_ssl(struct bdd_io *io, SSL *ssl);
 

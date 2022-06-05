@@ -37,8 +37,24 @@ static enum handle_io_status handle_io(struct bdd_io *io, uint32_t revents) {
 	if ((revents & EPOLLIN) && !io->rdhup) {
 		bdd_revents |= BDDEV_IN;
 	}
-	if ((revents & EPOLLOUT) && io->state == BDD_IO_RW) {
-		bdd_revents |= BDDEV_OUT;
+	if (revents & EPOLLOUT) {
+		if (io->state == bdd_io_est) {
+			bdd_revents |= bdd_ev_out;
+			bdd_io_epoll_flags(io, EPOLLOUT, 0);
+		} else if (io->state == BDD_IO_SSL_SHUTTING) {
+			switch (bdd_ssl_shutdown_continue(io)) {
+				case (bdd_cont_established): {
+					bdd_io_epoll_flags(io, EPOLLOUT, 0);
+					break;
+				}
+				case (bdd_cont_discard): {
+					bdd_io_epoll_remove(io);
+					break;
+				}
+			}
+		} else {
+			abort();
+		}
 	}
 	if (io->state == BDD_IO_ERR) {
 		bdd_revents |= BDDEV_NOOUT;
@@ -48,12 +64,20 @@ static enum handle_io_status handle_io(struct bdd_io *io, uint32_t revents) {
 		conversation->sosi.service->handle_events(conversation, bdd_io_id(conversation, io), bdd_revents);
 	}
 
-	if (io->state == BDD_IO_ERR) {
-		return handle_io_discard;
-	} else if (io->rdhup && io->wrhup) {
-		return handle_io_hup;
-	} else {
-		return handle_io_lt;
+	assert(conversation->client.state >= bdd_io_est);
+
+	if (conversation->client.state >= bdd_io_err) {
+		// discard conversation
+	}
+
+	if (
+		((
+			conversation->client.rdhup &&
+			!(conversation->client.epoll_flags & EPOLLOUT)
+		) || !conversation->client.in_epoll) &&
+		conversation->n_servers_in_epoll == 0
+	) {
+		abort();
 	}
 }
 
