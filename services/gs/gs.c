@@ -39,31 +39,41 @@ static uint8_t serve(struct bdd_conversation *conversation, uint8_t from, uint8_
 
 void general_service__handle_events(struct bdd_conversation *conversation) {
 	size_t n_ev = bdd_n_ev(conversation);
+	uint8_t events[2] = { 0, 0, };
 	for (size_t idx = 0; idx < n_ev; ++idx) {
 		struct bdd_ev *ev = bdd_ev(conversation, idx);
-		if (ev->events & bdd_ev_removed) {
+		events[ev->io_id] = ev->events;
+	}
+	for (size_t idx = 0; idx < 2; ++idx) {
+		if (events[idx] & bdd_ev_err) {
+			goto err;
+		}
+		if (events[idx] & bdd_ev_removed) {
 			uintptr_t a = (uintptr_t)bdd_get_associated(conversation);
 			bool c = true;
-			if (!(a & (gs_rdhup << gs_clsv(ev->io_id)))) {
+			if (!(a & (gs_rdhup << gs_clsv(idx)))) {
 				c = false;
 			}
-			if (!(a & (gs_called_shutdown << gs_clsv(ev->io_id)))) {
+			if (!(a & (gs_called_shutdown << gs_clsv(idx)))) {
 				c = false;
 			}
 			if (c) {
-				a |= (gs_wrhup << gs_clsv(ev->io_id));
+				a |= (gs_wrhup << gs_clsv(idx));
 			} else {
 				goto err;
 			}
-		} else if (ev->events & bdd_ev_in) {
-			switch (serve(conversation, ev->io_id, ev->io_id ^ 1)) {
+		}
+	}
+	for (size_t idx = 0; idx < 2; ++idx) {
+		if (events[idx] & bdd_ev_in) {
+			switch (serve(conversation, idx, idx ^ 1)) {
 				case (2): {
 					uintptr_t a = (uintptr_t)bdd_get_associated(conversation);
-					a |= (gs_rdhup << gs_clsv(ev->io_id));
-					a |= (gs_called_shutdown << gs_clsv(ev->io_id ^ 1));
+					a |= (gs_rdhup << gs_clsv(idx));
+					a |= (gs_called_shutdown << gs_clsv(idx ^ 1));
 					bdd_set_associated(conversation, (void *)a, NULL);
-					if (bdd_io_shutdown(conversation, ev->io_id ^ 1) != bdd_shutdown_inprogress) {
-						 a |= (gs_wrhup << gs_clsv(ev->io_id ^ 1));
+					if (bdd_io_shutdown(conversation, idx ^ 1) != bdd_shutdown_inprogress) {
+						 a |= (gs_wrhup << gs_clsv(idx ^ 1));
 					}
 					break;
 				}
@@ -105,7 +115,7 @@ bool general_service__conversation_init(
 			}
 		}
 
-		if (bdd_io_connect(conversation, io_id, addrinfo->ai_addr, addrinfo->ai_addrlen)) {
+		if (bdd_io_connect(conversation, io_id, addrinfo->ai_addr, addrinfo->ai_addrlen) != bdd_cont_discard) {
 			bdd_set_associated(conversation, 0, NULL);
 			return true;
 		}

@@ -240,6 +240,9 @@ enum bdd_cont bdd_accept_continue(struct bdd_conversation *conversation) {
 	return bdd_cont_established;
 }
 enum bdd_cont bdd_connect_continue(struct bdd_io *io) {
+	if (!io->ssl) {
+		return bdd_cont_established;
+	}
 	int r = SSL_connect(io->io.ssl);
 	if (r == -1) {
 		r = SSL_get_error(io->io.ssl, r);
@@ -303,6 +306,7 @@ void bdd_accept(struct bdd_worker_data *worker_data) {
 
 
 	conversation->state = bdd_conversation_accept;
+	conversation->n_in_epoll_with_events = 1;
 
 
 	io->state = bdd_io_est;
@@ -315,6 +319,9 @@ void bdd_accept(struct bdd_worker_data *worker_data) {
 	io->ssl_alpn = 0;
 
 	io->in_epoll = 1;
+
+
+	io->epoll_events = EPOLLIN;
 
 
 	io->io.ssl = ssl;

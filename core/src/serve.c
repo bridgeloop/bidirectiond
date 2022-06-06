@@ -62,7 +62,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 			continue;
 		}
 		struct bdd_conversation *conversation = io->conversation;
-		if (!conversation->n_ev) {
+		if (conversation->n_ev == 0) {
 			bdd_tl_unlink(
 				timeout_list,
 				conversation
@@ -81,7 +81,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 				ev->events = (
 					(event->events & EPOLLIN ? bdd_ev_in : 0) |
 					(event->events & EPOLLOUT ? bdd_ev_out : 0) |
-					(event->events & EPOLLERR ? 8 : 0)
+					(event->events & EPOLLERR ? bdd_ev_err : 0)
 				);
 				#ifndef NDEBUG
 				if (event->events & EPOLLERR) {
@@ -89,6 +89,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 				}
 				#endif
 				process_link(&(process_list), conversation);
+				break;
 			}
 		}
 	}
@@ -105,8 +106,6 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 
 		for (size_t idx = 0; idx < conversation->n_ev;) {
 			struct bdd_ev *ev = bdd_ev(conversation, idx);
-			bool wr_err = ev->events & 8;
-			ev->events &= ~8;
 
 			struct bdd_io *io = bdd_io(conversation, ev->io_id);
 
@@ -122,13 +121,16 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 						break;
 					}
 				}
-			} else if (wr_err) {
+			} else if (ev->events & bdd_ev_err) {
 				assert(!(ev->events & bdd_ev_out));
 				if (bdd_io_hup(io, false)) {
 					ev->events = bdd_ev_removed;
 					bdd_io_discard(io);
 				} else {
-					bdd_io_state(io, bdd_io_est);
+					if (io->state == bdd_io_ssl_shutting) {
+						bdd_io_state(io, bdd_io_est);
+						ev->events &= ~bdd_ev_err;
+					}
 				}
 			} else if (ev->events & bdd_ev_out) {
 				if (io->state == bdd_io_est) {
@@ -164,11 +166,11 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 			}
 		}
 
-		if (conversation->n_ev || conversation->remove) {
+		if (conversation->n_ev != 0) {
 			conversation->sosi.service->handle_events(conversation);
 		}
 
-		if (conversation->n_in_epoll_with_events == 0) {
+		if (conversation->n_in_epoll_with_events == 0 || conversation->remove) {
 			bdd_conversation_discard(conversation);
 		}
 

@@ -26,11 +26,6 @@ void bdd_set_associated(
 	if (conversation->aopn.associated.destructor != NULL) {
 		conversation->aopn.associated.destructor(conversation->aopn.associated.data);
 	}
-#ifndef NDEBUG
-	if (data != NULL || destructor != NULL) {
-		assert(data != NULL && destructor != NULL);
-	}
-#endif
 	conversation->aopn.associated.data = data;
 	conversation->aopn.associated.destructor = destructor;
 	return;
@@ -60,9 +55,6 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 	if (io_array == NULL) {
 		return NULL;
 	}
-	for (size_t idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
-		io_array[idx].state = bdd_io_unused;
-	}
 	struct bdd_conversation *conversation;
 	pthread_mutex_lock(&(bdd_gv.available_conversations.mutex));
 	if (atomic_load(&(bdd_gv.exiting)) || bdd_gv.available_conversations.idx == bdd_gv.n_conversations) {
@@ -79,8 +71,12 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 	}
 	pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
 	conversation = &(bdd_gv.conversations[id]);
+	for (size_t idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
+		io_array[idx].state = bdd_io_unused;
+		io_array[idx].conversation = conversation;
+	}
 	conversation->state = bdd_conversation_obtained;
-	conversation->epoll_fd = -1;
+	conversation->epoll_fd = epoll_fd;
 	conversation->sosi.service_instance = NULL;
 	conversation->io_array = io_array;
 	conversation->n_connecting = 0;

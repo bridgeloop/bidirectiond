@@ -29,7 +29,6 @@ struct bdd_io *bdd_io(struct bdd_conversation *conversation, bdd_io_id io_id) {
 }
 
 int bdd_io_fd(struct bdd_io *io) {
-	assert(io->state >= bdd_io_connecting);
 	if (io->ssl) {
 		return SSL_get_fd(io->io.ssl);
 	} else {
@@ -37,12 +36,9 @@ int bdd_io_fd(struct bdd_io *io) {
 	}
 }
 
-void bdd_io_epoll_mod(struct bdd_io *io, uint32_t add_events, uint32_t remove_events, bool edge_trigger) {
+void bdd_io_epoll_mod(struct bdd_io *io, uint32_t remove_events, uint32_t add_events, bool edge_trigger) {
 	uint32_t old_events = io->epoll_events;
 	io->epoll_events &= ~remove_events;
-	if (io->rdhup) {
-		add_events &= ~EPOLLIN;
-	}
 	io->epoll_events |= add_events;
 	if (edge_trigger) {
 		io->epoll_events |= EPOLLET;
@@ -66,7 +62,7 @@ void bdd_io_epoll_mod(struct bdd_io *io, uint32_t add_events, uint32_t remove_ev
 			.events = io->epoll_events,
 			.data = { .ptr = io, },
 		};
-		epoll_ctl(io->conversation->epoll_fd, EPOLL_CTL_MOD, bdd_io_fd(io), NULL);
+		epoll_ctl(io->conversation->epoll_fd, EPOLL_CTL_MOD, bdd_io_fd(io), &(ev));
 	}
 	return;
 }
@@ -80,7 +76,7 @@ void bdd_io_epoll_add(struct bdd_io *io) {
 		.events = io->epoll_events,
 		.data = { .ptr = io, },
 	};
-	epoll_ctl(io->conversation->epoll_fd, EPOLL_CTL_ADD, bdd_io_fd(io), NULL);
+	epoll_ctl(io->conversation->epoll_fd, EPOLL_CTL_ADD, bdd_io_fd(io), &(ev));
 	if ((io->epoll_events & ~EPOLLET) != 0) {
 		io->conversation->n_in_epoll_with_events += 1;
 	}
@@ -114,35 +110,33 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 	assert(state != new_state);
 
 	if (state == bdd_io_connecting) {
-		if (conversation->n_connecting) {
+		conversation->n_connecting -= 1;
+		if (!conversation->n_connecting) {
 			for (bdd_io_id idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
 				struct bdd_io *idx_io = bdd_io(conversation, idx);
 				if (idx_io == io || (idx_io->state != bdd_io_est && idx_io->state != bdd_io_ssl_shutting)) {
 					continue;
 				}
-				if (!io->rdhup) {
+				if (!idx_io->rdhup) {
 					bdd_io_epoll_mod(idx_io, 0, EPOLLIN, false);
 				}
-				if (io->state == bdd_io_est) {
+				if (idx_io->state == bdd_io_est) {
 					bdd_io_epoll_add(idx_io);
 				}
 			}
 		}
-		conversation->n_connecting -= 1;
 	}
-
-	io->state = new_state;
 
 	if (new_state == bdd_io_connecting) {
 		if (conversation->n_connecting == 0) {
-			for (bdd_io_id idx = 0; idx < BIDIRECTIOND_N_IO; +idx) {
+			for (bdd_io_id idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
 				struct bdd_io *idx_io = bdd_io(conversation, idx);
 				if (idx_io == io || idx_io->state == bdd_io_connecting) {
 					continue;
 				}
 				if (idx_io->state == bdd_io_ssl_shutting) {
 					bdd_io_epoll_mod(idx_io, EPOLLIN, 0, false);
-				} else {
+				} else if (idx_io->state == bdd_io_est) {
 					bdd_io_epoll_remove(idx_io);
 				}
 			}
@@ -167,6 +161,8 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 	} else {
 		bdd_io_epoll_remove(io);
 	}
+
+	io->state = new_state;
 
 	return;
 }
@@ -210,6 +206,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 					bdd_io_discard(io);
 					return -2;
 				}
+				bdd_io_epoll_mod(io, EPOLLIN, 0, false);
 				return -3;
 			} else if (
 				(
@@ -239,6 +236,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 				bdd_io_discard(io);
 				return -2;
 			}
+			bdd_io_epoll_mod(io, EPOLLIN, 0, false);
 			return -3;
 		}
 	}
@@ -311,6 +309,11 @@ bool bdd_io_obtain(struct bdd_conversation *conversation, bdd_io_id *io_id) {
 	for (size_t idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
 		struct bdd_io *io = &(conversation->io_array[idx]);
 		if (io->state == bdd_io_unused) {
+			io->rdhup = io->wrhup = 0;
+			io->ssl_alpn = io->ssl = 0;
+			io->in_epoll = 0;
+			io->epoll_events = 0;
+			io->io.fd = -1;
 			bdd_io_state(io, bdd_io_obtained);
 			*io_id = (bdd_io_id)idx;
 			return true;
@@ -343,6 +346,7 @@ enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, 
 		abort();
 	}
 	if (io->state != bdd_io_est || io->wrhup) {
+ printf("%i\n", io->state);
 		fputs("programming error: bdd_io_shutdown called with an io_id which is in an invalid state\n", stderr);
 		abort();
 	}
@@ -370,7 +374,7 @@ void bdd_io_discard(struct bdd_io *io) {
 	if (state == bdd_io_unused) {
 		return;
 	}
-	bdd_io_state(io, bdd_io_unused);
+		bdd_io_state(io, bdd_io_unused);
 	if (state >= bdd_io_connecting) {
 		int fd = bdd_io_fd(io);
 		if (
@@ -494,5 +498,5 @@ enum bdd_cont bdd_io_connect(
 
 	err:;
 	bdd_io_discard(io);
-	return false;
+	return bdd_cont_discard;
 }

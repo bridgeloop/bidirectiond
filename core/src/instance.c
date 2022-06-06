@@ -23,6 +23,7 @@ struct bdd_gv bdd_gv = {
 
 	.name_descs = NULL,
 
+
 	.eventfd = -1,
 
 	.conversations = NULL,
