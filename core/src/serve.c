@@ -122,6 +122,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 					bdd_io_discard(io);
 				} else if (io->state > bdd_io_est) {
 					bdd_io_state(io, bdd_io_est);
+					goto remove_event;
 				}
 			} else if (ev->events & bdd_ev_out) {
 				if (io->state == bdd_io_out) {
