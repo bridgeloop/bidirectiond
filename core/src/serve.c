@@ -102,8 +102,6 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 		struct bdd_conversation *conversation = process_list;
 		process_list = conversation->next;
 
-		bool any_connecting = conversation->n_connecting > 0;
-
 		for (size_t idx = 0; idx < conversation->n_ev;) {
 			struct bdd_ev *ev = bdd_ev(conversation, idx);
 
@@ -121,20 +119,19 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 						break;
 					}
 				}
+				goto remove_event;
 			} else if (ev->events & bdd_ev_err) {
 				assert(!(ev->events & bdd_ev_out));
 				if (bdd_io_hup(io, false)) {
 					ev->events = bdd_ev_removed;
 					bdd_io_discard(io);
-				} else {
-					if (io->state == bdd_io_ssl_shutting) {
-						bdd_io_state(io, bdd_io_est);
-						ev->events &= ~bdd_ev_err;
-					}
+				} else if (io->state > bdd_io_est) {
+					bdd_io_state(io, bdd_io_est);
 				}
 			} else if (ev->events & bdd_ev_out) {
-				if (io->state == bdd_io_est) {
-					bdd_io_epoll_mod(io, EPOLLOUT, 0, false);
+				if (io->state == bdd_io_out) {
+					assert(!io->wrhup);
+					bdd_io_state(io, bdd_io_est);
 				} else if (io->state == bdd_io_ssl_shutting) {
 					if (bdd_ssl_shutdown_continue(io) == bdd_shutdown_complete) {
 						if (bdd_io_hup(io, false)) {
@@ -155,11 +152,12 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 			if (io->wrhup && (ev->events & bdd_ev_out)) {
 				abort();
 			}
-			#endif
-			if (any_connecting) {
-				ev->events &= ~(bdd_ev_in | bdd_ev_out);
+			if (conversation->n_blocking > 0) {
+				assert(!(ev->events & bdd_ev_in));
 			}
+			#endif
 			if (!ev->events) {
+				remove_event:;
 				memmove(ev, &(ev[1]), (--conversation->n_ev - idx) * sizeof(struct bdd_ev));
 			} else {
 				idx += 1;

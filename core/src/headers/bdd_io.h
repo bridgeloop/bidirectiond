@@ -13,6 +13,7 @@ enum bdd_io_state {
 
 	// established //
 	bdd_io_est,
+	bdd_io_out, // est but with epollout rather than epollin
 	bdd_io_ssl_shutting, // ssl shutdown in progress
 };
 

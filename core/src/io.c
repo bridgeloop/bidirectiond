@@ -109,9 +109,9 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 
 	assert(state != new_state);
 
-	if (state == bdd_io_connecting) {
-		conversation->n_connecting -= 1;
-		if (!conversation->n_connecting) {
+	if (state == bdd_io_connecting || state == bdd_io_out) {
+		conversation->n_blocking -= 1;
+		if (!conversation->n_blocking) {
 			for (bdd_io_id idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
 				struct bdd_io *idx_io = bdd_io(conversation, idx);
 				if (idx_io == io || (idx_io->state != bdd_io_est && idx_io->state != bdd_io_ssl_shutting)) {
@@ -127,11 +127,11 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 		}
 	}
 
-	if (new_state == bdd_io_connecting) {
-		if (conversation->n_connecting == 0) {
+	if (new_state == bdd_io_connecting || new_state == bdd_io_out) {
+		if (conversation->n_blocking == 0) {
 			for (bdd_io_id idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
 				struct bdd_io *idx_io = bdd_io(conversation, idx);
-				if (idx_io == io || idx_io->state == bdd_io_connecting) {
+				if (idx_io == io || idx_io->state == bdd_io_connecting || idx_io->state == bdd_io_out) {
 					continue;
 				}
 				if (idx_io->state == bdd_io_ssl_shutting) {
@@ -141,8 +141,14 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 				}
 			}
 		}
-		conversation->n_connecting += 1;
+		conversation->n_blocking += 1;
+	}
+
+	if (new_state == bdd_io_connecting) {
 		bdd_io_epoll_mod(io, 0, EPOLLIN | EPOLLOUT, true);
+		bdd_io_epoll_add(io);
+	} else if (new_state == bdd_io_out) {
+		bdd_io_epoll_mod(io, EPOLLIN, EPOLLOUT, false);
 		bdd_io_epoll_add(io);
 	} else if (new_state == bdd_io_est) {
 		uint32_t epollin = EPOLLIN;
@@ -150,7 +156,7 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 			epollin = 0;
 		}
 		bdd_io_epoll_mod(io, EPOLLOUT, epollin, false);
-		if (conversation->n_connecting == 0) {
+		if (conversation->n_blocking == 0) {
 			bdd_io_epoll_add(io);
 		} else {
 			bdd_io_epoll_remove(io);
@@ -175,7 +181,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 	ssize_t sz
 ) {
 	struct bdd_io *io = bdd_io(conversation, io_id);
-	if (io == NULL || buf == NULL || sz <= 0 || conversation->n_connecting > 0) {
+	if (io == NULL || buf == NULL || sz <= 0 || conversation->n_blocking > 0) {
 		fputs("programming error: bdd_io_read called with invalid arguments\n", stderr);
 		abort();
 		return -1;
@@ -251,7 +257,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 	ssize_t sz
 ) {
 	struct bdd_io *io = bdd_io(conversation, io_id);
-	if (io == NULL || buf == NULL || sz <= 0 || conversation->n_connecting > 0) {
+	if (io == NULL || buf == NULL || sz <= 0) {
 		fputs("programming error: bdd_io_write called with invalid arguments\n", stderr);
 		abort();
 		return -1;
@@ -275,8 +281,8 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 			} else if (err == SSL_ERROR_WANT_READ) {
 				abort(); // fuck re-negotiation
 			} else if (err == SSL_ERROR_WANT_WRITE) {
-				bdd_io_epoll_mod(io, 0, EPOLLOUT, false);
-				return 0;
+				r = 0;
+				goto want_send;
 			}
 			if (bdd_io_hup(io, false)) {
 				return -2;
@@ -290,18 +296,21 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 				goto send;
 			}
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
-				bdd_io_epoll_mod(io, 0, EPOLLOUT, false);
-				return 0;
+				r = 0;
+				goto want_send;
 			}
 			if (bdd_io_hup(io, false)) {
 				return -2;
 			}
 			return -1;
 		}
-		if (r != sz) {
-			bdd_io_epoll_mod(io, 0, EPOLLOUT, false);
-		}
 	}
+	if (r == sz) {
+		return sz;
+	}
+
+	want_send:;
+	bdd_io_state(io, bdd_io_out);
 	return r;
 }
 

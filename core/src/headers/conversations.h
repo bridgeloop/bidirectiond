@@ -41,7 +41,7 @@ struct bdd_conversation {
 
 	struct bdd_io *io_array;
 
-	bdd_io_id n_connecting;
+	bdd_io_id n_blocking;
 	bdd_io_id n_in_epoll_with_events;
 
 	bdd_io_id n_ev;
