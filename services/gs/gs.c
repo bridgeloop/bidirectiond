@@ -1,7 +1,4 @@
 #include <openssl/ssl.h>
-#include "../../core/src/headers/conversations.h"
-#include "../../core/src/headers/bdd_io.h"
-
 #include <bdd-core/services.h>
 #include <netdb.h>
 #include <string.h>
@@ -12,32 +9,46 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
-static uint8_t serve(struct bdd_conversation *conversation, uint8_t from, uint8_t to) {
-	unsigned char buf[0x400];
-	for (;;) {
-		ssize_t n = bdd_io_read(conversation, from, buf, sizeof(buf));
-		if (n <= -2) {
+#define buf_sz_each 0x400
+#define clsvb(idx) (idx == 0 ? 0 : buf_sz_each)
+
+struct associated {
+	uint8_t flags;
+	ssize_t idx[2];
+	ssize_t n[2];
+	unsigned char buf[];
+};
+
+static uint8_t serve(struct bdd_conversation *conversation, struct associated *a, uint8_t from, uint8_t to) {
+	for (size_t it = 0; it < 10; ++it) {
+		ssize_t r = a->n[to] = bdd_io_read(conversation, from, &(a->buf[clsvb(to)]), buf_sz_each);
+		if (r <= -2) {
 			return 2;
 		}
-		if (n == -1) {
+		if (r == -1) {
 			return 1;
 		}
-		if (n == 0) {
+		if (r == 0) {
 			return 0;
 		}
-		if (bdd_io_write(conversation, to, buf, n) != n) {
+		r = a->idx[to] = bdd_io_write(conversation, to, &(a->buf[clsvb(to)]), r);
+		if (r < 0) {
 			return 1;
 		}
+		if (r != a->n[to]) {
+			return 0;
+		}
 	}
+	return 0;
 }
 
-#define gs_clsv(io_id) (io_id == 0 ? 0 : 3)
-
-#define gs_rdhup 1
-#define gs_called_shutdown 2
-#define gs_wrhup 4
+#define rdhup 1
+#define called_shutdown 2
+#define wrhup 4
+#define clsv(idx) (idx == 0 ? 0 : 3)
 
 void general_service__handle_events(struct bdd_conversation *conversation) {
+	struct associated *a = bdd_get_associated(conversation);
 	size_t n_ev = bdd_n_ev(conversation);
 	uint8_t events[2] = { 0, 0, };
 	for (size_t idx = 0; idx < n_ev; ++idx) {
@@ -49,31 +60,36 @@ void general_service__handle_events(struct bdd_conversation *conversation) {
 			goto err;
 		}
 		if (events[idx] & bdd_ev_removed) {
-			uintptr_t a = (uintptr_t)bdd_get_associated(conversation);
 			bool c = true;
-			if (!(a & (gs_rdhup << gs_clsv(idx)))) {
+			if (!(a->flags & (rdhup << clsv(idx)))) {
 				c = false;
 			}
-			if (!(a & (gs_called_shutdown << gs_clsv(idx)))) {
+			if (!(a->flags & (called_shutdown << clsv(idx)))) {
 				c = false;
 			}
 			if (c) {
-				a |= (gs_wrhup << gs_clsv(idx));
+				a->flags |= (wrhup << clsv(idx));
 			} else {
 				goto err;
 			}
 		}
 	}
 	for (size_t idx = 0; idx < 2; ++idx) {
+		if (events[idx] & bdd_ev_out) {
+			assert(!(events[idx] & bdd_ev_in));
+			ssize_t r = bdd_io_write(conversation, idx, &(a->buf[clsvb(idx)]), a->n[idx] - a->idx[idx]);
+			if (r < 0) {
+				goto err;
+			}
+			a->idx[idx] += r;
+		}
 		if (events[idx] & bdd_ev_in) {
-			switch (serve(conversation, idx, idx ^ 1)) {
+			switch (serve(conversation, a, idx, idx ^ 1)) {
 				case (2): {
-					uintptr_t a = (uintptr_t)bdd_get_associated(conversation);
-					a |= (gs_rdhup << gs_clsv(idx));
-					a |= (gs_called_shutdown << gs_clsv(idx ^ 1));
-					bdd_set_associated(conversation, (void *)a, NULL);
+					a->flags |= (rdhup << clsv(idx));
+					a->flags |= (called_shutdown << clsv(idx ^ 1));
 					if (bdd_io_shutdown(conversation, idx ^ 1) != bdd_shutdown_inprogress) {
-						 a |= (gs_wrhup << gs_clsv(idx ^ 1));
+						 a->flags |= (wrhup << clsv(idx ^ 1));
 					}
 					break;
 				}
@@ -116,7 +132,12 @@ bool general_service__conversation_init(
 		}
 
 		if (bdd_io_connect(conversation, io_id, addrinfo->ai_addr, addrinfo->ai_addrlen) != bdd_cont_discard) {
-			bdd_set_associated(conversation, 0, NULL);
+			struct associated *a = malloc(sizeof(struct associated) + (buf_sz_each * 2));
+			if (a == NULL) {
+				return false;
+			}
+			a->flags = 0;
+			bdd_set_associated(conversation, a, NULL);
 			return true;
 		}
 	}

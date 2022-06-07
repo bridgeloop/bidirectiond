@@ -83,11 +83,6 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 					(event->events & EPOLLOUT ? bdd_ev_out : 0) |
 					(event->events & EPOLLERR ? bdd_ev_err : 0)
 				);
-				#ifndef NDEBUG
-				if (event->events & EPOLLERR) {
-					assert(event->events & EPOLLIN);
-				}
-				#endif
 				process_link(&(process_list), conversation);
 				break;
 			}
@@ -121,7 +116,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 				}
 				goto remove_event;
 			} else if (ev->events & bdd_ev_err) {
-				assert(!(ev->events & bdd_ev_out));
+				ev->events &= ~bdd_ev_out;
 				if (bdd_io_hup(io, false)) {
 					ev->events = bdd_ev_removed;
 					bdd_io_discard(io);

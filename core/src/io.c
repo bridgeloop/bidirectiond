@@ -94,7 +94,7 @@ void bdd_io_epoll_remove(struct bdd_io *io) {
 }
 
 bool bdd_io_hup(struct bdd_io *io, bool rdhup) {
-	assert(io->state == bdd_io_est || io->state == bdd_io_ssl_shutting);
+	assert(io->state >= bdd_io_est);
 	if (rdhup) {
 		io->rdhup = 1;
 	} else {
@@ -289,6 +289,9 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 			}
 			return -1;
 		}
+		if (r != sz) {
+			goto want_send;
+		}
 	} else {
 		r = send(io->io.fd, buf, sz, 0);
 		if (r < 0) {
@@ -304,11 +307,11 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 			}
 			return -1;
 		}
+		if (r != sz) {
+			goto want_send;
+		}
 	}
-	if (r == sz) {
-		return sz;
-	}
-
+	return sz;
 	want_send:;
 	bdd_io_state(io, bdd_io_out);
 	return r;
@@ -355,7 +358,6 @@ enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, 
 		abort();
 	}
 	if (io->state != bdd_io_est || io->wrhup) {
- printf("%i\n", io->state);
 		fputs("programming error: bdd_io_shutdown called with an io_id which is in an invalid state\n", stderr);
 		abort();
 	}
