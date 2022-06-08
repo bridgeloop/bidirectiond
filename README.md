@@ -1,3 +1,2 @@
 # bidirectiond
-
-wip program that will eventually be a http "reverse" proxy
+a fast tls "reverse" proxy for linux which tries to balance speed and resourcefulness
