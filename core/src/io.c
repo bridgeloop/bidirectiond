@@ -89,7 +89,9 @@ void bdd_io_epoll_remove(struct bdd_io *io) {
 	}
 	io->in_epoll = 0;
 	epoll_ctl(io->conversation->epoll_fd, EPOLL_CTL_DEL, bdd_io_fd(io), NULL);
-	io->conversation->n_in_epoll_with_events -= 1;
+	if ((io->epoll_events & ~EPOLLET) != 0) {
+		io->conversation->n_in_epoll_with_events -= 1;
+	}
 	return;
 }
 
