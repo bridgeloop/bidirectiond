@@ -73,7 +73,7 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 	conversation = &(bdd_gv.conversations[id]);
 	for (size_t idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
 		io_array[idx].state = bdd_io_unused;
-		io_array[idx].conversation = conversation;
+		io_array[idx].conversation_id = id;
 	}
 	conversation->state = bdd_conversation_obtained;
 	conversation->epoll_fd = epoll_fd;

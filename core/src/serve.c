@@ -61,7 +61,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 			bdd_accept(worker_data);
 			continue;
 		}
-		struct bdd_conversation *conversation = io->conversation;
+		struct bdd_conversation *conversation = io_conversation(io);
 		if (conversation->n_ev == 0) {
 			bdd_tl_unlink(
 				timeout_list,

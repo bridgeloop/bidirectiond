@@ -18,7 +18,7 @@ enum bdd_io_state {
 };
 
 struct bdd_io {
-	struct bdd_conversation *conversation;
+	unsigned conversation_id;
 
 	enum bdd_io_state state;
 

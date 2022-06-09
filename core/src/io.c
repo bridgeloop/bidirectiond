@@ -17,7 +17,7 @@
 #include "headers/bidirectiond_n_io.h"
 
 bdd_io_id bdd_io_id_of(struct bdd_io *io) {
-	struct bdd_conversation *conversation = io->conversation;
+	struct bdd_conversation *conversation = io_conversation(io);
 	return (((char *)io - (char *)conversation->io_array) / sizeof(struct bdd_io));
 }
 
@@ -53,16 +53,16 @@ void bdd_io_epoll_mod(struct bdd_io *io, uint32_t remove_events, uint32_t add_ev
 	if (io->in_epoll) {
 		if ((old_events & ~EPOLLET) == 0) {
 			if ((io->epoll_events & ~EPOLLET) != 0) {
-				io->conversation->n_in_epoll_with_events += 1;
+				io_conversation(io)->n_in_epoll_with_events += 1;
 			}
 		} else if ((io->epoll_events & ~EPOLLET) == 0) {
-			io->conversation->n_in_epoll_with_events -= 1;
+			io_conversation(io)->n_in_epoll_with_events -= 1;
 		}
 		struct epoll_event ev = {
 			.events = io->epoll_events,
 			.data = { .ptr = io, },
 		};
-		epoll_ctl(io->conversation->epoll_fd, EPOLL_CTL_MOD, bdd_io_fd(io), &(ev));
+		epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_MOD, bdd_io_fd(io), &(ev));
 	}
 	return;
 }
@@ -76,21 +76,21 @@ void bdd_io_epoll_add(struct bdd_io *io) {
 		.events = io->epoll_events,
 		.data = { .ptr = io, },
 	};
-	epoll_ctl(io->conversation->epoll_fd, EPOLL_CTL_ADD, bdd_io_fd(io), &(ev));
+	epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_ADD, bdd_io_fd(io), &(ev));
 	if ((io->epoll_events & ~EPOLLET) != 0) {
-		io->conversation->n_in_epoll_with_events += 1;
+		io_conversation(io)->n_in_epoll_with_events += 1;
 	}
 	return;
 }
 
 void bdd_io_epoll_remove(struct bdd_io *io) {
-	if (!io->in_epoll || io->conversation->epoll_fd < 0) {
+	if (!io->in_epoll || io_conversation(io)->epoll_fd < 0) {
 		return;
 	}
 	io->in_epoll = 0;
-	epoll_ctl(io->conversation->epoll_fd, EPOLL_CTL_DEL, bdd_io_fd(io), NULL);
+	epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_DEL, bdd_io_fd(io), NULL);
 	if ((io->epoll_events & ~EPOLLET) != 0) {
-		io->conversation->n_in_epoll_with_events -= 1;
+		io_conversation(io)->n_in_epoll_with_events -= 1;
 	}
 	return;
 }
@@ -106,7 +106,7 @@ bool bdd_io_hup(struct bdd_io *io, bool rdhup) {
 }
 
 void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
-	struct bdd_conversation *conversation = io->conversation;
+	struct bdd_conversation *conversation = io_conversation(io);
 	enum bdd_io_state state = io->state;
 
 	assert(state != new_state);

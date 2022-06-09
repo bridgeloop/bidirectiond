@@ -14,6 +14,8 @@
 struct bdd_service;
 struct bdd_io;
 
+#define io_conversation(io) (&(bdd_gv.conversations[io->conversation_id]))
+
 struct bdd_associated {
 	void *data;
 	void (*destructor)(void *data);
