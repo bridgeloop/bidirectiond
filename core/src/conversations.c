@@ -127,7 +127,7 @@ void bdd_conversation_discard(struct bdd_conversation *conversation) {
 					.events = EPOLLIN,
 					.data = { .ptr = NULL, },
 				};
-				if (epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, worker_data->serve_fd, &(ev)) != 0) {
+				if (!atomic_load(&(bdd_gv.exiting)) && epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, worker_data->serve_fd, &(ev)) != 0) {
 					abort();
 				}
 			}

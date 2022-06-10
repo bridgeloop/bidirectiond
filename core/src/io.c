@@ -224,9 +224,6 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 				if (errno == EINTR) {
 					goto recv;
 				}
-				if (errno == 0) {
-					return 0;
-				}
 			} else if (err == SSL_ERROR_WANT_WRITE) {
 				abort(); // fuck re-negotiation
 			} else if (err == SSL_ERROR_ZERO_RETURN /* received close_notify */) {
