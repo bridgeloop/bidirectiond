@@ -85,5 +85,7 @@ enum bdd_shutdown_status bdd_ssl_shutdown_continue(struct bdd_io *io);
 
 bool bdd_io_hup(struct bdd_io *io, bool rdhup);
 void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state);
+void bdd_io_clean(struct bdd_io *io, enum bdd_io_state prev_state);
+void bdd_io_epoll_remove(struct bdd_io *io);
 
 #endif

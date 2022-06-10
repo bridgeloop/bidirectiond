@@ -76,7 +76,9 @@ void bdd_io_epoll_mod(struct bdd_io *io, uint8_t remove_events, uint8_t add_even
 			.events = bdd_epoll_to_epoll(io->epoll_events),
 			.data = { .ptr = io, },
 		};
-		epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_MOD, bdd_io_fd(io), &(ev));
+		if (epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_MOD, bdd_io_fd(io), &(ev)) != 0) {
+			abort();
+		}
 	}
 	return;
 }
@@ -90,7 +92,9 @@ void bdd_io_epoll_add(struct bdd_io *io) {
 		.events = bdd_epoll_to_epoll(io->epoll_events),
 		.data = { .ptr = io, },
 	};
-	epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_ADD, bdd_io_fd(io), &(ev));
+	if (epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_ADD, bdd_io_fd(io), &(ev)) != 0) {
+		abort(); // to-do: handle more gracefully
+	}
 	if ((io->epoll_events & ~bdd_epoll_et) != 0) {
 		io_conversation(io)->n_in_epoll_with_events += 1;
 	}
@@ -102,7 +106,9 @@ void bdd_io_epoll_remove(struct bdd_io *io) {
 		return;
 	}
 	io->in_epoll = 0;
-	epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_DEL, bdd_io_fd(io), NULL);
+	if (epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_DEL, bdd_io_fd(io), NULL) != 0) {
+		abort();
+	}
 	if ((io->epoll_events & ~bdd_epoll_et) != 0) {
 		io_conversation(io)->n_in_epoll_with_events -= 1;
 	}
@@ -396,13 +402,8 @@ enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, 
 	return bdd_shutdown_complete;
 }
 
-void bdd_io_discard(struct bdd_io *io) {
-	enum bdd_io_state state = io->state;
-	if (state == bdd_io_unused) {
-		return;
-	}
-		bdd_io_state(io, bdd_io_unused);
-	if (state >= bdd_io_connecting) {
+void bdd_io_clean(struct bdd_io *io, enum bdd_io_state prev_state) {
+	if (prev_state >= bdd_io_connecting) {
 		int fd = bdd_io_fd(io);
 		if (
 			io->ssl &&
@@ -418,6 +419,15 @@ void bdd_io_discard(struct bdd_io *io) {
 	if (io->ssl) {
 		SSL_free(io->io.ssl);
 	}
+	return;
+}
+void bdd_io_discard(struct bdd_io *io) {
+	enum bdd_io_state state = io->state;
+	if (state == bdd_io_unused) {
+		return;
+	}
+	bdd_io_state(io, bdd_io_unused);
+	bdd_io_clean(io, state);
 	return;
 }
 
@@ -502,7 +512,6 @@ enum bdd_cont bdd_io_connect(
 	} else {
 		io->io.fd = fd;
 	}
-	bdd_io_state(io, bdd_io_connecting);
 	do {
 		if (connect(fd, sockaddr, addrlen) == 0) {
 			switch (bdd_connect_continue(io)) {
@@ -510,6 +519,7 @@ enum bdd_cont bdd_io_connect(
 					goto err;
 				}
 				case (bdd_cont_inprogress): {
+					bdd_io_state(io, bdd_io_connecting);
 					return bdd_cont_inprogress;
 				}
 				case (bdd_cont_established): {
@@ -519,6 +529,7 @@ enum bdd_cont bdd_io_connect(
 			}
 		}
 		if (errno == EINPROGRESS) {
+			bdd_io_state(io, bdd_io_connecting);
 			return bdd_cont_inprogress;
 		}
 	} while (errno == EINTR);

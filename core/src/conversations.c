@@ -66,7 +66,9 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 	if (bdd_gv.available_conversations.idx == bdd_gv.n_conversations) {
 		for (size_t idx = 0; idx < bdd_gv.n_workers; ++idx) {
 			struct bdd_worker_data *worker_data = bdd_gv_worker(idx);
-			epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_DEL, worker_data->serve_fd, NULL);
+			if (epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_DEL, worker_data->serve_fd, NULL) != 0) {
+				abort();
+			}
 		}
 	}
 	pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
@@ -93,7 +95,14 @@ void bdd_conversation_discard(struct bdd_conversation *conversation) {
 	}
 	if (conversation->state >= bdd_conversation_accept) {
 		for (size_t idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
-			bdd_io_discard(&(conversation->io_array[idx]));
+			struct bdd_io *io = &(conversation->io_array[idx]);
+			enum bdd_io_state state = io->state;
+			if (state == bdd_io_unused) {
+				continue;
+			}
+			//io->state = bdd_io_unused;
+			bdd_io_epoll_remove(io);
+			bdd_io_clean(io, state);
 		}
 	}
 	if (conversation->state >= bdd_conversation_obtained) {
@@ -118,7 +127,9 @@ void bdd_conversation_discard(struct bdd_conversation *conversation) {
 					.events = EPOLLIN,
 					.data = { .ptr = NULL, },
 				};
-				epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, worker_data->serve_fd, &(ev));
+				if (epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, worker_data->serve_fd, &(ev)) != 0) {
+					abort();
+				}
 			}
 		}
 
