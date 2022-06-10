@@ -22,7 +22,7 @@ enum bdd_io_state {
 #define bdd_epoll_et 4
 
 struct bdd_io {
-	unsigned conversation_id;
+	int conversation_id;
 
 	enum bdd_io_state state;
 
