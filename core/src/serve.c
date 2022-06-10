@@ -166,9 +166,9 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 
 		if (conversation->n_in_epoll_with_events == 0 || conversation->remove) {
 			bdd_conversation_discard(conversation);
+		} else {
+			conversation->n_ev = 0;
 		}
-
-		conversation->n_ev = 0;
 	}
 
 	goto epoll;
