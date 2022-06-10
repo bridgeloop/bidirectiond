@@ -1,5 +1,5 @@
 #ifndef bidirectiond_core__bdd_cont__h
-#define bidirectiond_core__bdd_contt__h
+#define bidirectiond_core__bdd_cont__h
 
 enum bdd_cont {
 	bdd_cont_discard,

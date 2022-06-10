@@ -36,30 +36,44 @@ int bdd_io_fd(struct bdd_io *io) {
 	}
 }
 
-void bdd_io_epoll_mod(struct bdd_io *io, uint32_t remove_events, uint32_t add_events, bool edge_trigger) {
-	uint32_t old_events = io->epoll_events;
+uint32_t bdd_epoll_to_epoll(uint8_t bdd_epoll) {
+	uint32_t output = 0;
+	if (bdd_epoll & bdd_epoll_in) {
+		output |= EPOLLIN;
+	}
+	if (bdd_epoll & bdd_epoll_out) {
+		output |= EPOLLOUT;
+	}
+	if (bdd_epoll & bdd_epoll_et) {
+		output |= EPOLLET;
+	}
+	return output;
+}
+
+void bdd_io_epoll_mod(struct bdd_io *io, uint8_t remove_events, uint8_t add_events, bool edge_trigger) {
+	uint8_t old_events = io->epoll_events;
 	io->epoll_events &= ~remove_events;
 	io->epoll_events |= add_events;
 	if (edge_trigger) {
-		io->epoll_events |= EPOLLET;
+		io->epoll_events |= bdd_epoll_et;
 	} else {
-		io->epoll_events &= ~EPOLLET;
+		io->epoll_events &= ~bdd_epoll_et;
 	}
 	#ifndef NDEBUG
 	if (io->rdhup) {
-		assert(!(io->epoll_events & EPOLLIN));
+		assert(!(io->epoll_events & bdd_epoll_in));
 	}
 	#endif
 	if (io->in_epoll) {
-		if ((old_events & ~EPOLLET) == 0) {
-			if ((io->epoll_events & ~EPOLLET) != 0) {
+		if ((old_events & ~bdd_epoll_et) == 0) {
+			if ((io->epoll_events & ~bdd_epoll_et) != 0) {
 				io_conversation(io)->n_in_epoll_with_events += 1;
 			}
-		} else if ((io->epoll_events & ~EPOLLET) == 0) {
+		} else if ((io->epoll_events & ~bdd_epoll_et) == 0) {
 			io_conversation(io)->n_in_epoll_with_events -= 1;
 		}
 		struct epoll_event ev = {
-			.events = io->epoll_events,
+			.events = bdd_epoll_to_epoll(io->epoll_events),
 			.data = { .ptr = io, },
 		};
 		epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_MOD, bdd_io_fd(io), &(ev));
@@ -73,11 +87,11 @@ void bdd_io_epoll_add(struct bdd_io *io) {
 	}
 	io->in_epoll = 1;
 	struct epoll_event ev = {
-		.events = io->epoll_events,
+		.events = bdd_epoll_to_epoll(io->epoll_events),
 		.data = { .ptr = io, },
 	};
 	epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_ADD, bdd_io_fd(io), &(ev));
-	if ((io->epoll_events & ~EPOLLET) != 0) {
+	if ((io->epoll_events & ~bdd_epoll_et) != 0) {
 		io_conversation(io)->n_in_epoll_with_events += 1;
 	}
 	return;
@@ -89,7 +103,7 @@ void bdd_io_epoll_remove(struct bdd_io *io) {
 	}
 	io->in_epoll = 0;
 	epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_DEL, bdd_io_fd(io), NULL);
-	if ((io->epoll_events & ~EPOLLET) != 0) {
+	if ((io->epoll_events & ~bdd_epoll_et) != 0) {
 		io_conversation(io)->n_in_epoll_with_events -= 1;
 	}
 	return;
@@ -120,7 +134,7 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 					continue;
 				}
 				if (!idx_io->rdhup) {
-					bdd_io_epoll_mod(idx_io, 0, EPOLLIN, false);
+					bdd_io_epoll_mod(idx_io, 0, bdd_epoll_in, false);
 				}
 				if (idx_io->state == bdd_io_est) {
 					bdd_io_epoll_add(idx_io);
@@ -137,7 +151,7 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 					continue;
 				}
 				if (idx_io->state == bdd_io_ssl_shutting) {
-					bdd_io_epoll_mod(idx_io, EPOLLIN, 0, false);
+					bdd_io_epoll_mod(idx_io, bdd_epoll_in, 0, false);
 				} else if (idx_io->state == bdd_io_est) {
 					bdd_io_epoll_remove(idx_io);
 				}
@@ -147,24 +161,24 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 	}
 
 	if (new_state == bdd_io_connecting) {
-		bdd_io_epoll_mod(io, 0, EPOLLIN | EPOLLOUT, true);
+		bdd_io_epoll_mod(io, 0, bdd_epoll_in | bdd_epoll_out, true);
 		bdd_io_epoll_add(io);
 	} else if (new_state == bdd_io_out) {
-		bdd_io_epoll_mod(io, EPOLLIN, EPOLLOUT, false);
+		bdd_io_epoll_mod(io, bdd_epoll_in, bdd_epoll_out, false);
 		bdd_io_epoll_add(io);
 	} else if (new_state == bdd_io_est) {
-		uint32_t epollin = EPOLLIN;
+		uint8_t epollin = bdd_epoll_in;
 		if (io->rdhup) {
 			epollin = 0;
 		}
-		bdd_io_epoll_mod(io, EPOLLOUT, epollin, false);
+		bdd_io_epoll_mod(io, bdd_epoll_out, epollin, false);
 		if (conversation->n_blocking == 0) {
 			bdd_io_epoll_add(io);
 		} else {
 			bdd_io_epoll_remove(io);
 		}
 	} else if (new_state == bdd_io_ssl_shutting) {
-		bdd_io_epoll_mod(io, 0, EPOLLOUT, false);
+		bdd_io_epoll_mod(io, 0, bdd_epoll_out, false);
 		bdd_io_epoll_add(io);
 	} else {
 		bdd_io_epoll_remove(io);
@@ -214,7 +228,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 					bdd_io_discard(io);
 					return -2;
 				}
-				bdd_io_epoll_mod(io, EPOLLIN, 0, false);
+				bdd_io_epoll_mod(io, bdd_epoll_in, 0, false);
 				return -3;
 			} else if (
 				(
@@ -244,7 +258,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 				bdd_io_discard(io);
 				return -2;
 			}
-			bdd_io_epoll_mod(io, EPOLLIN, 0, false);
+			bdd_io_epoll_mod(io, bdd_epoll_in, 0, false);
 			return -3;
 		}
 	}

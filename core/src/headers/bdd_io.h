@@ -17,6 +17,10 @@ enum bdd_io_state {
 	bdd_io_ssl_shutting, // ssl shutdown in progress
 };
 
+#define bdd_epoll_in 1
+#define bdd_epoll_out 2
+#define bdd_epoll_et 4
+
 struct bdd_io {
 	unsigned conversation_id;
 
@@ -31,7 +35,7 @@ struct bdd_io {
 
 		in_epoll : 1;
 
-	uint32_t epoll_events;
+	uint8_t epoll_events;
 
 	union {
 		int fd;

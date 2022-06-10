@@ -83,9 +83,6 @@ struct bdd_io *bdd_io(struct bdd_conversation *conversation, bdd_io_id io_id);
 
 enum bdd_shutdown_status bdd_ssl_shutdown_continue(struct bdd_io *io);
 
-void bdd_io_epoll_mod(struct bdd_io *io, uint32_t add_events, uint32_t remove_events, bool edge_trigger);
-void bdd_io_epoll_add(struct bdd_io *io);
-void bdd_io_epoll_remove(struct bdd_io *io);
 bool bdd_io_hup(struct bdd_io *io, bool rdhup);
 void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state);
 

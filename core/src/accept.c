@@ -321,7 +321,7 @@ void bdd_accept(struct bdd_worker_data *worker_data) {
 	io->in_epoll = 1;
 
 
-	io->epoll_events = EPOLLIN;
+	io->epoll_events = bdd_epoll_in;
 
 
 	io->io.ssl = ssl;
