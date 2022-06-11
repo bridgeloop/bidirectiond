@@ -278,9 +278,7 @@ void bdd_accept(struct bdd_worker_data *worker_data) {
 
 	// accept
 	BDD_DEBUG_LOG("accepting tcp connection\n");
-	do {
-		fd = accept(worker_data->serve_fd, NULL, NULL);
-	} while (fd < 0 && errno == EINTR);
+	fd = accept(worker_data->serve_fd, NULL, NULL);
 	if (fd < 0) {
 		BDD_DEBUG_LOG("rejected tcp connection\n");
 		goto err;

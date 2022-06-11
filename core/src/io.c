@@ -215,16 +215,11 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 	}
 
 	ssize_t r;
-	recv:;
 	if (io->ssl) {
 		r = SSL_read(io->io.ssl, buf, sz);
 		if (r <= 0) {
 			int err = SSL_get_error(io->io.ssl, r);
-			if (err == SSL_ERROR_SYSCALL) {
-				if (errno == EINTR) {
-					goto recv;
-				}
-			} else if (err == SSL_ERROR_WANT_WRITE) {
+			if (err == SSL_ERROR_WANT_WRITE) {
 				abort(); // fuck re-negotiation
 			} else if (err == SSL_ERROR_ZERO_RETURN /* received close_notify */) {
 				if (bdd_io_hup(io, true)) {
@@ -247,9 +242,6 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 	} else {
 		r = recv(io->io.fd, buf, sz, 0);
 		if (r < 0) {
-			if (errno == EINTR) {
-				goto recv;
-			}
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				return 0;
 			}
@@ -288,16 +280,11 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 	}
 
 	ssize_t r;
-	send:;
 	if (io->ssl) {
 		r = SSL_write(io->io.ssl, buf, sz);
 		if (r <= 0) {
 			int err = SSL_get_error(io->io.ssl, r);
-			if (err == SSL_ERROR_SYSCALL) {
-				if (errno == EINTR) {
-					goto send;
-				}
-			} else if (err == SSL_ERROR_WANT_READ) {
+			if (err == SSL_ERROR_WANT_READ) {
 				abort(); // fuck re-negotiation
 			} else if (err == SSL_ERROR_WANT_WRITE) {
 				r = 0;
@@ -314,9 +301,6 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 	} else {
 		r = send(io->io.fd, buf, sz, 0);
 		if (r < 0) {
-			if (errno == EINTR) {
-				goto send;
-			}
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				r = 0;
 				goto want_send;
@@ -509,27 +493,25 @@ enum bdd_cont bdd_io_connect(
 	} else {
 		io->io.fd = fd;
 	}
-	do {
-		if (connect(fd, sockaddr, addrlen) == 0) {
-			switch (bdd_connect_continue(io)) {
-				case (bdd_cont_discard): {
-					goto err;
-				}
-				case (bdd_cont_inprogress): {
-					bdd_io_state(io, bdd_io_connecting);
-					return bdd_cont_inprogress;
-				}
-				case (bdd_cont_established): {
-					bdd_io_state(io, bdd_io_est);
-					return bdd_cont_established;
-				}
+	if (connect(fd, sockaddr, addrlen) == 0) {
+		switch (bdd_connect_continue(io)) {
+			case (bdd_cont_discard): {
+				goto err;
+			}
+			case (bdd_cont_inprogress): {
+				bdd_io_state(io, bdd_io_connecting);
+				return bdd_cont_inprogress;
+			}
+			case (bdd_cont_established): {
+				bdd_io_state(io, bdd_io_est);
+				return bdd_cont_established;
 			}
 		}
-		if (errno == EINPROGRESS) {
-			bdd_io_state(io, bdd_io_connecting);
-			return bdd_cont_inprogress;
-		}
-	} while (errno == EINTR);
+	}
+	if (errno == EINPROGRESS) {
+		bdd_io_state(io, bdd_io_connecting);
+		return bdd_cont_inprogress;
+	}
 
 	err:;
 	bdd_io_discard(io);
