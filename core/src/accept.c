@@ -132,7 +132,7 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_conversation *conversat
 					}
 					// loop through the list of protocols that the client
 					// prefers (over the currently selected one)
-					for (uint8_t alpn_idx = 0; alpn_idx < alpn_sz;) {
+					for (uint16_t alpn_idx = 0; alpn_idx < alpn_sz;) {
 						uint8_t alpn_len = alpn[alpn_idx];
 						// bounds checking
 						if (alpn_len == 0 || alpn_sz - 1 - alpn_idx < alpn_len) {
