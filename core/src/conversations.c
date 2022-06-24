@@ -66,7 +66,11 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 	if (bdd_gv.available_conversations.idx == bdd_gv.n_conversations) {
 		for (size_t idx = 0; idx < bdd_gv.n_workers; ++idx) {
 			struct bdd_worker_data *worker_data = bdd_gv_worker(idx);
-			if (epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_DEL, worker_data->serve_fd, NULL) != 0) {
+			struct epoll_event ev = {
+				.events = 0,
+				.data = { .ptr = NULL, },
+			};
+			if (epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_MOD, worker_data->serve_fd, &(ev)) != 0) {
 				abort();
 			}
 		}
@@ -100,7 +104,6 @@ void bdd_conversation_discard(struct bdd_conversation *conversation) {
 			if (state == bdd_io_unused) {
 				continue;
 			}
-			//io->state = bdd_io_unused;
 			bdd_io_epoll_remove(io);
 			bdd_io_clean(io, state);
 		}
@@ -127,7 +130,7 @@ void bdd_conversation_discard(struct bdd_conversation *conversation) {
 					.events = EPOLLIN,
 					.data = { .ptr = NULL, },
 				};
-				if (!atomic_load(&(bdd_gv.exiting)) && epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, worker_data->serve_fd, &(ev)) != 0) {
+				if (!atomic_load(&(bdd_gv.exiting)) && epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_MOD, worker_data->serve_fd, &(ev)) != 0) {
 					abort();
 				}
 			}
