@@ -58,6 +58,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 		struct epoll_event *event = &(events[idx]);
 		struct bdd_io *io = event->data.ptr;
 		if (io == NULL) {
+			assert(event->events == EPOLLIN);
 			bdd_accept(worker_data);
 			continue;
 		}
