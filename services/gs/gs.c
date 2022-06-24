@@ -50,46 +50,48 @@ static uint8_t serve(struct bdd_conversation *conversation, struct associated *a
 void general_service__handle_events(struct bdd_conversation *conversation) {
 	struct associated *a = bdd_get_associated(conversation);
 	size_t n_ev = bdd_n_ev(conversation);
-	uint8_t events[2] = { 0, 0, };
 	for (size_t idx = 0; idx < n_ev; ++idx) {
 		struct bdd_ev *ev = bdd_ev(conversation, idx);
-		events[ev->io_id] = ev->events;
-	}
-	for (size_t idx = 0; idx < 2; ++idx) {
-		if (events[idx] & bdd_ev_err) {
+		bdd_io_id io_id = ev->io_id;
+		if (!(ev->events & (bdd_ev_err | bdd_ev_removed))) {
+			break;
+		}
+		if (ev->events & bdd_ev_err) {
 			goto err;
 		}
-		if (events[idx] & bdd_ev_removed) {
+		if (ev->events & bdd_ev_removed) {
 			bool c = true;
-			if (!(a->flags & (rdhup << clsv(idx)))) {
+			if (!(a->flags & (rdhup << clsv(io_id)))) {
 				c = false;
 			}
-			if (!(a->flags & (called_shutdown << clsv(idx)))) {
+			if (!(a->flags & (called_shutdown << clsv(io_id)))) {
 				c = false;
 			}
 			if (c) {
-				a->flags |= (wrhup << clsv(idx));
+				a->flags |= (wrhup << clsv(ev->io_id));
 			} else {
 				goto err;
 			}
 		}
 	}
-	for (size_t idx = 0; idx < 2; ++idx) {
-		if (events[idx] & bdd_ev_out) {
-			assert(!(events[idx] & bdd_ev_in));
-			ssize_t r = bdd_io_write(conversation, idx, &(a->buf[clsvb(idx)]), a->n[idx] - a->idx[idx]);
+	for (size_t idx = 0; idx < n_ev; ++idx) {
+		struct bdd_ev *ev = bdd_ev(conversation, idx);
+		bdd_io_id io_id = ev->io_id;
+		if (ev->events & bdd_ev_out) {
+			assert(!(ev->events & bdd_ev_in));
+			ssize_t r = bdd_io_write(conversation, io_id, &(a->buf[clsvb(io_id)]), a->n[io_id] - a->idx[io_id]);
 			if (r < 0) {
 				goto err;
 			}
-			a->idx[idx] += r;
+			a->idx[io_id] += r;
 		}
-		if (events[idx] & bdd_ev_in) {
-			switch (serve(conversation, a, idx, idx ^ 1)) {
+		if (ev->events & bdd_ev_in) {
+			switch (serve(conversation, a, io_id, io_id ^ 1)) {
 				case (2): {
-					a->flags |= (rdhup << clsv(idx));
-					a->flags |= (called_shutdown << clsv(idx ^ 1));
-					if (bdd_io_shutdown(conversation, idx ^ 1) != bdd_shutdown_inprogress) {
-						 a->flags |= (wrhup << clsv(idx ^ 1));
+					a->flags |= (rdhup << clsv(io_id));
+					a->flags |= (called_shutdown << clsv(io_id ^ 1));
+					if (bdd_io_shutdown(conversation, io_id ^ 1) != bdd_shutdown_inprogress) {
+						 a->flags |= (wrhup << clsv(io_id ^ 1));
 					}
 					break;
 				}

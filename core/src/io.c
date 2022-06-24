@@ -225,6 +225,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 	}
 	if (io->state < bdd_io_est || io->rdhup) {
 		fputs("programming error: bdd_io_read called with an io_id which is in an invalid state\n", stderr);
+		printf("io->state %i, io->rdhup %i\n", io->state, io->rdhup);
 		abort();
 		return -1;
 	}

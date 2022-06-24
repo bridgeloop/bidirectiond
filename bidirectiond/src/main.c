@@ -294,8 +294,6 @@ int main(int argc, char *argv[], char *env[]) {
 			arg_err:;
 			fputs("argument parsing failed\n"
 			     "-t: set the amount of worker threads\n"
-			     "--client-timeout: set the timeout (in ms) for "
-			     "client socket i/o\n"
 			     "--epoll-timeout: set the timeout (in ms) for "
 			     "bdd_conversation structs\n"
 			     "-l: set the rlimits for open files (soft limit, "

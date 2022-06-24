@@ -98,6 +98,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 		struct bdd_conversation *conversation = process_list;
 		process_list = conversation->next;
 
+		size_t non_err_idx = 0;
 		for (size_t idx = 0; idx < conversation->n_ev;) {
 			struct bdd_ev *ev = bdd_ev(conversation, idx);
 
@@ -171,6 +172,15 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 				remove_event:;
 				memmove(ev, &(ev[1]), (--conversation->n_ev - idx) * sizeof(struct bdd_ev));
 			} else {
+				if (ev->events & (bdd_ev_err | bdd_ev_removed)) {
+					if (non_err_idx != idx) {
+						struct bdd_ev this_ev = *ev;
+						struct bdd_ev *non_err_ev = bdd_ev(conversation, non_err_idx);
+						*ev = *non_err_ev;
+						*non_err_ev = this_ev;
+					}
+					non_err_idx += 1;
+				}
 				idx += 1;
 			}
 		}
