@@ -83,9 +83,9 @@ void bdd_io_epoll_mod(struct bdd_io *io, uint8_t remove_events, uint8_t add_even
 	return;
 }
 
-void bdd_io_epoll_add(struct bdd_io *io) {
+bool bdd_io_epoll_add(struct bdd_io *io) {
 	if (io->in_epoll) {
-		return;
+		return true;
 	}
 	io->in_epoll = 1;
 	struct epoll_event ev = {
@@ -93,12 +93,12 @@ void bdd_io_epoll_add(struct bdd_io *io) {
 		.data = { .ptr = io, },
 	};
 	if (epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_ADD, bdd_io_fd(io), &(ev)) != 0) {
-		abort(); // to-do: handle more gracefully
+		return false;
 	}
 	if ((io->epoll_events & ~bdd_epoll_et) != 0) {
 		io_conversation(io)->n_in_epoll_with_events += 1;
 	}
-	return;
+	return true;
 }
 
 void bdd_io_epoll_remove(struct bdd_io *io) {
@@ -125,7 +125,7 @@ bool bdd_io_hup(struct bdd_io *io, bool rdhup) {
 	return (io->rdhup && io->wrhup);
 }
 
-void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
+bool bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 	struct bdd_conversation *conversation = io_conversation(io);
 	enum bdd_io_state state = io->state;
 
@@ -143,7 +143,9 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 					bdd_io_epoll_mod(idx_io, 0, bdd_epoll_in, false);
 				}
 				if (idx_io->state == bdd_io_est) {
-					bdd_io_epoll_add(idx_io);
+					if (!bdd_io_epoll_add(idx_io)) {
+						return false;
+					}
 				}
 			}
 		}
@@ -168,10 +170,14 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 
 	if (new_state == bdd_io_connecting) {
 		bdd_io_epoll_mod(io, 0, bdd_epoll_in | bdd_epoll_out, true);
-		bdd_io_epoll_add(io);
+		if (!bdd_io_epoll_add(io)) {
+			return true;
+		}
 	} else if (new_state == bdd_io_out) {
 		bdd_io_epoll_mod(io, bdd_epoll_in, bdd_epoll_out, false);
-		bdd_io_epoll_add(io);
+		if (!bdd_io_epoll_add(io)) {
+			return true;
+		}
 	} else if (new_state == bdd_io_est) {
 		uint8_t epollin = bdd_epoll_in;
 		if (io->rdhup) {
@@ -179,29 +185,38 @@ void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 		}
 		bdd_io_epoll_mod(io, bdd_epoll_out, epollin, false);
 		if (conversation->n_blocking == 0) {
-			bdd_io_epoll_add(io);
+			if (!bdd_io_epoll_add(io)) {
+				return false;
+			}
 		} else {
 			bdd_io_epoll_remove(io);
 		}
 	} else if (new_state == bdd_io_ssl_shutting) {
 		bdd_io_epoll_mod(io, 0, bdd_epoll_out, false);
-		bdd_io_epoll_add(io);
+		if (!bdd_io_epoll_add(io)) {
+			return false;
+		}
 	} else {
 		bdd_io_epoll_remove(io);
 	}
 
 	io->state = new_state;
 
-	return;
+	return true;
 }
 
-// returns the number of bytes read (where 0 is a possible value), returns -3 on rdhup, returns -2 if IO discarded, returns -1 on err,
+// returns the number of bytes read (where 0 is a possible value), returns -4 on rdhup, returns -3 if conversation to be discarded, returns -2 if IO discarded, returns -1 on err
 __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 	struct bdd_conversation *conversation,
 	bdd_io_id io_id,
 	void *buf,
 	ssize_t sz
 ) {
+	if (conversation->remove) {
+		fputs("programming error: bdd_io_read called with an io_id of a discarded conversation\n", stderr);
+		abort();
+		return -3;
+	}
 	struct bdd_io *io = bdd_io(conversation, io_id);
 	if (io == NULL || buf == NULL || sz <= 0 || conversation->n_blocking > 0) {
 		fputs("programming error: bdd_io_read called with invalid arguments\n", stderr);
@@ -223,11 +238,13 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 				abort(); // fuck re-negotiation
 			} else if (err == SSL_ERROR_ZERO_RETURN /* received close_notify */) {
 				if (bdd_io_hup(io, true)) {
-					bdd_io_discard(io);
+					if (!bdd_io_discard(io)) {
+						goto conversation_discard;
+					}
 					return -2;
 				}
 				bdd_io_epoll_mod(io, bdd_epoll_in, 0, false);
-				return -3;
+				return -4;
 			} else if (
 				(
 					err == SSL_ERROR_WANT_READ /* read all of the bytes and no close_notify received */ ||
@@ -236,7 +253,9 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 			) {
 				return 0;
 			}
-			bdd_io_discard(io);
+			if (!bdd_io_discard(io)) {
+				goto conversation_discard;
+			}
 			return -2;
 		}
 	} else {
@@ -245,28 +264,40 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				return 0;
 			}
-			bdd_io_discard(io);
+			if (!bdd_io_discard(io)) {
+				goto conversation_discard;
+			}
 			return -2;
 		}
 		if (r == 0) {
 			if (bdd_io_hup(io, true)) {
-				bdd_io_discard(io);
+				if (!bdd_io_discard(io)) {
+					goto conversation_discard;
+				}
 				return -2;
 			}
 			bdd_io_epoll_mod(io, bdd_epoll_in, 0, false);
-			return -3;
+			return -4;
 		}
 	}
 	return r;
+	conversation_discard:;
+	conversation->remove = true;
+	return -3;
 }
 
-// returns the number of bytes written, returns -2 if IO discarded, returns -1 on err
+// returns the number of bytes written, returns -3 if conversation to be discarded, returns -2 if IO discarded, returns -1 on err
 __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 	struct bdd_conversation *conversation,
 	bdd_io_id io_id,
 	void *buf,
 	ssize_t sz
 ) {
+	if (conversation->remove) {
+		fputs("programming error: bdd_io_write called with an io_id of a discarded conversation\n", stderr);
+		abort();
+		return -3;
+	}
 	struct bdd_io *io = bdd_io(conversation, io_id);
 	if (io == NULL || buf == NULL || sz <= 0) {
 		fputs("programming error: bdd_io_write called with invalid arguments\n", stderr);
@@ -316,8 +347,13 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 	}
 	return sz;
 	want_send:;
-	bdd_io_state(io, bdd_io_out);
+	if (!bdd_io_state(io, bdd_io_out)) {
+		goto conversation_discard;
+	}
 	return r;
+	conversation_discard:;
+	conversation->remove = true;
+	return -3;
 }
 
 bool bdd_io_obtain(struct bdd_conversation *conversation, bdd_io_id *io_id) {
@@ -329,7 +365,8 @@ bool bdd_io_obtain(struct bdd_conversation *conversation, bdd_io_id *io_id) {
 			io->in_epoll = 0;
 			io->epoll_events = 0;
 			io->io.fd = -1;
-			bdd_io_state(io, bdd_io_obtained);
+			bool sstate = bdd_io_state(io, bdd_io_obtained);
+			assert(sstate);
 			*io_id = (bdd_io_id)idx;
 			return true;
 		}
@@ -355,6 +392,11 @@ enum bdd_shutdown_status bdd_ssl_shutdown_continue(struct bdd_io *io) {
 }
 
 enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, bdd_io_id io_id) {
+	if (conversation->remove) {
+		fputs("programming error: bdd_io_shutdown called with an io_id of a discarded conversation\n", stderr);
+		abort();
+		return bdd_shutdown_conversation_discard;
+	}
 	struct bdd_io *io = bdd_io(conversation, io_id);
 	if (io == NULL) {
 		fputs("programming error: bdd_io_shutdown called with invalid arguments\n", stderr);
@@ -366,7 +408,9 @@ enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, 
 	}
 
 	if (io->ssl) {
-		bdd_io_state(io, bdd_io_ssl_shutting);
+		if (!bdd_io_state(io, bdd_io_ssl_shutting)) {
+			goto conversation_discard;
+		}
 		if (bdd_ssl_shutdown_continue(io) == bdd_shutdown_inprogress) {
 			return bdd_shutdown_inprogress;
 		}
@@ -374,13 +418,21 @@ enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, 
 		shutdown(bdd_io_fd(io), SHUT_WR);
 	}
 	if (bdd_io_hup(io, false)) {
-		bdd_io_discard(io);
+		if (!bdd_io_discard(io)) {
+			goto conversation_discard;
+		}
 		return bdd_shutdown_discard;
 	}
 	if (io->ssl) {
-		bdd_io_state(io, bdd_io_est);
+		if (!bdd_io_state(io, bdd_io_est)) {
+			goto conversation_discard;
+		}
 	}
 	return bdd_shutdown_complete;
+
+	conversation_discard:;
+	conversation->remove = true;
+	return bdd_shutdown_conversation_discard;
 }
 
 void bdd_io_clean(struct bdd_io *io, enum bdd_io_state prev_state) {
@@ -402,14 +454,16 @@ void bdd_io_clean(struct bdd_io *io, enum bdd_io_state prev_state) {
 	}
 	return;
 }
-void bdd_io_discard(struct bdd_io *io) {
+bool bdd_io_discard(struct bdd_io *io) {
 	enum bdd_io_state state = io->state;
 	if (state == bdd_io_unused) {
-		return;
+		return true;
 	}
-	bdd_io_state(io, bdd_io_unused);
+	if (!bdd_io_state(io, bdd_io_unused)) {
+		return false;
+	}
 	bdd_io_clean(io, state);
-	return;
+	return true;
 }
 
 bool bdd_io_prep_ssl(struct bdd_conversation *conversation, bdd_io_id io_id, char *ssl_name, char *alp) {
@@ -456,17 +510,22 @@ bool bdd_io_prep_ssl(struct bdd_conversation *conversation, bdd_io_id io_id, cha
 	#endif
 
 	// configure the IO
-	// **do not goto err after this point**
 	io->ssl = 1;
 	io->io.ssl = ssl;
-	bdd_io_state(io, bdd_io_prepd_ssl);
+	bool sstate = bdd_io_state(io, bdd_io_prepd_ssl);
+	assert(sstate);
 	return true;
 
 	err:;
+	/*io->ssl = 0;
+	if (io->state == bdd_io_prepd_ssl) {
+		bdd_io_state(io, bdd_io_obtained);
+	}*/
 	if (ssl != NULL) {
 		SSL_free(ssl);
 	}
-	bdd_io_discard(io);
+	bool sdiscard = bdd_io_discard(io);
+	assert(sdiscard);
 	return false;
 }
 
@@ -476,6 +535,11 @@ enum bdd_cont bdd_io_connect(
 	struct sockaddr *sockaddr,
 	socklen_t addrlen
 ) {
+	if (conversation->remove) {
+		fputs("programming error: bdd_io_connect called with an io_id of a discarded conversation\n", stderr);
+		abort();
+		return bdd_cont_conversation_discard;
+	}
 	struct bdd_io *io = bdd_io(conversation, io_id);
 	if (io == NULL || (io->state != bdd_io_obtained && io->state != bdd_io_prepd_ssl)) {
 		fputs("programming error: bdd_io_connect called with an io_id which is in an invalid state\n", stderr);
@@ -499,21 +563,33 @@ enum bdd_cont bdd_io_connect(
 				goto err;
 			}
 			case (bdd_cont_inprogress): {
-				bdd_io_state(io, bdd_io_connecting);
+				if (!bdd_io_state(io, bdd_io_connecting)) {
+					goto conversation_discard;
+				}
 				return bdd_cont_inprogress;
 			}
 			case (bdd_cont_established): {
-				bdd_io_state(io, bdd_io_est);
+				if (!bdd_io_state(io, bdd_io_est)) {
+					goto conversation_discard;
+				}
 				return bdd_cont_established;
 			}
 		}
 	}
 	if (errno == EINPROGRESS) {
-		bdd_io_state(io, bdd_io_connecting);
+		if (!bdd_io_state(io, bdd_io_connecting)) {
+			goto conversation_discard;
+		}
 		return bdd_cont_inprogress;
 	}
 
 	err:;
-	bdd_io_discard(io);
+	if (!bdd_io_discard(io)) {
+		goto conversation_discard;
+	}
 	return bdd_cont_discard;
+
+	conversation_discard:;
+	conversation->remove = true;
+	return bdd_cont_conversation_discard;
 }

@@ -204,7 +204,7 @@ enum bdd_cont bdd_accept_continue(struct bdd_conversation *conversation) {
 		if (r == SSL_ERROR_WANT_WRITE || r == SSL_ERROR_WANT_READ) {
 			return bdd_cont_inprogress;
 		}
-		return bdd_cont_discard;
+		return bdd_cont_conversation_discard;
 	}
 
 	int fd = bdd_io_fd(io);
@@ -234,7 +234,7 @@ enum bdd_cont bdd_accept_continue(struct bdd_conversation *conversation) {
 		service_inst->service->conversation_init != NULL &&
 		!service_inst->service->conversation_init(conversation, cstr_protocol_name, service_inst->instance_info, 0, sockaddr)
 	) {
-		return bdd_cont_discard;
+		return bdd_cont_conversation_discard;
 	}
 
 	return bdd_cont_established;

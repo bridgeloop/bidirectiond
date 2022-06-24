@@ -76,7 +76,7 @@ enum bdd_conversation_init_status bdd_conversation_init(
 int bdd_io_fd(struct bdd_io *io);
 struct bdd_conversation *bdd_conversation_obtain(int epoll_fd);
 void bdd_conversation_discard(struct bdd_conversation *conversation);
-void bdd_io_discard(struct bdd_io *io);
+bool bdd_io_discard(struct bdd_io *io);
 
 bdd_io_id bdd_io_id_of(struct bdd_io *io);
 struct bdd_io *bdd_io(struct bdd_conversation *conversation, bdd_io_id io_id);
@@ -84,7 +84,7 @@ struct bdd_io *bdd_io(struct bdd_conversation *conversation, bdd_io_id io_id);
 enum bdd_shutdown_status bdd_ssl_shutdown_continue(struct bdd_io *io);
 
 bool bdd_io_hup(struct bdd_io *io, bool rdhup);
-void bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state);
+bool bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state);
 void bdd_io_clean(struct bdd_io *io, enum bdd_io_state prev_state);
 void bdd_io_epoll_remove(struct bdd_io *io);
 

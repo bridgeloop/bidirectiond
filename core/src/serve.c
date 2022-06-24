@@ -71,7 +71,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 		}
 		switch (conversation->state) {
 			case (bdd_conversation_accept): {
-				if (bdd_accept_continue(conversation) == bdd_cont_discard) {
+				if (bdd_accept_continue(conversation) == bdd_cont_conversation_discard) {
 					bdd_conversation_discard(conversation);
 				}
 				break;
@@ -106,12 +106,16 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 			if (io->state == bdd_io_connecting) {
 				switch (bdd_connect_continue(io)) {
 					case (bdd_cont_established): {
-						bdd_io_state(io, bdd_io_est);
+						if (!bdd_io_state(io, bdd_io_est)) {
+							goto conversation_discard;
+						}
 						break;
 					}
 					case (bdd_cont_discard): {
 						ev->events = bdd_ev_removed;
-						bdd_io_discard(io);
+						if (!bdd_io_discard(io)) {
+							goto conversation_discard;
+						}
 						break;
 					}
 				}
@@ -120,22 +124,32 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 				ev->events &= ~bdd_ev_out;
 				if (bdd_io_hup(io, false)) {
 					ev->events = bdd_ev_removed;
-					bdd_io_discard(io);
+					if (!bdd_io_discard(io)) {
+						goto conversation_discard;
+					}
 				} else if (io->state > bdd_io_est) {
-					bdd_io_state(io, bdd_io_est);
+					if (!bdd_io_state(io, bdd_io_est)) {
+						goto conversation_discard;
+					}
 					goto remove_event;
 				}
 			} else if (ev->events & bdd_ev_out) {
 				if (io->state == bdd_io_out) {
 					assert(!io->wrhup);
-					bdd_io_state(io, bdd_io_est);
+					if (!bdd_io_state(io, bdd_io_est)) {
+						goto conversation_discard;
+					}
 				} else if (io->state == bdd_io_ssl_shutting) {
 					if (bdd_ssl_shutdown_continue(io) == bdd_shutdown_complete) {
 						if (bdd_io_hup(io, false)) {
 							ev->events = bdd_ev_removed;
-							bdd_io_discard(io);
+							if (!bdd_io_discard(io)) {
+								goto conversation_discard;
+							}
 						} else {
-							bdd_io_state(io, bdd_io_est);
+							if (!bdd_io_state(io, bdd_io_est)) {
+								goto conversation_discard;
+							}
 						}
 					}
 					ev->events &= ~bdd_ev_out;
@@ -166,6 +180,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 		}
 
 		if (conversation->n_in_epoll_with_events == 0 || conversation->remove) {
+			conversation_discard:;
 			bdd_conversation_discard(conversation);
 		} else {
 			conversation->n_ev = 0;

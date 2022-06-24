@@ -22,7 +22,7 @@ struct associated {
 static uint8_t serve(struct bdd_conversation *conversation, struct associated *a, uint8_t from, uint8_t to) {
 	for (size_t it = 0; it < 10; ++it) {
 		ssize_t r = a->n[to] = bdd_io_read(conversation, from, &(a->buf[clsvb(to)]), buf_sz_each);
-		if (r == -3) {
+		if (r == -4) {
 			return 2;
 		}
 		if (r <= -1) {

@@ -36,6 +36,10 @@ int bdd_conversation_id(struct bdd_conversation *conversation) {
 }
 
 void bdd_conversation_remove_later(struct bdd_conversation *conversation) {
+	if (conversation->remove) {
+		fputs("programming error: bdd_conversation_remove_later called with a discarded conversation\n", stderr);
+		abort();
+	}
 	conversation->remove = true;
 	return;
 }

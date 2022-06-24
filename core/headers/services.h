@@ -29,7 +29,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 );
 
 bool bdd_io_obtain(struct bdd_conversation *conversation, bdd_io_id *io_id);
-bool bdd_io_connect(struct bdd_conversation *conversation, bdd_io_id io_id, struct sockaddr *addr, socklen_t addrlen);
+__attribute__((warn_unused_result)) enum bdd_cont bdd_io_connect(struct bdd_conversation *conversation, bdd_io_id io_id, struct sockaddr *addr, socklen_t addrlen);
 bool bdd_io_prep_ssl(
 	struct bdd_conversation *conversation,
 	bdd_io_id io_id,
@@ -50,7 +50,7 @@ bool bdd_name_descs_add_service_instance(
 	const void **instance_info
 );
 
-enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, bdd_io_id io_id);
+__attribute__((warn_unused_result)) enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, bdd_io_id io_id);
 
 void bdd_conversation_remove_later(struct bdd_conversation *conversation);
 
