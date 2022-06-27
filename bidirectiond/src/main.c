@@ -1,8 +1,3 @@
-#include "core_settings.h"
-#include "cp_pwd.h"
-#include "input_processor.h"
-#include "strtoint.h"
-
 #include <poll.h>
 #include <assert.h>
 #include <arpa/inet.h>
@@ -18,6 +13,11 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
+
+#include "core_settings.h"
+#include "cp_pwd.h"
+#include "input_processor.h"
+#include "strtoint.h"
 
 #ifndef BIDIRECTIOND_USERNAME
 #define BIDIRECTIOND_USERNAME "nobody"
@@ -446,9 +446,7 @@ int main(int argc, char *argv[], char *env[]) {
 	struct signalfd_siginfo sig;
 	for (;;) {
 		while (poll((struct pollfd *)&(pollfds), input_fd < 0 ? 1 : 2, -1) < 0) {
-			if (errno
-			    != EINTR /* e.g., SIGUSR1 could be sent to bidirectiond, and then handled by this thread */)
-			{
+			if (errno != EINTR /* e.g., SIGUSR1 could be sent to bidirectiond, and then handled by this thread */) {
 				goto clean_up;
 			}
 		}
@@ -457,18 +455,17 @@ int main(int argc, char *argv[], char *env[]) {
 				goto clean_up;
 			}
 			switch (sig.ssi_signo) {
-				case (SIGINT):
-				case (SIGTERM): {
+				case (SIGINT): case (SIGTERM): {
 					goto clean_up;
 				}
 				default: {
-					assert(false);
+					abort();
 				}
 			}
 		}
 		if (pollfds[1].revents & POLLIN) {
 			char buf[0x100];
-			input_processor(input_fd, (char *)&(buf), sizeof(buf));
+			input_processor(input_fd, (char *)buf, sizeof(buf));
 		}
 	}
 
