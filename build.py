@@ -22,7 +22,8 @@ for directory, _, files in os.walk(os.path.join(file_dirname, "core")):
 		gcc.append(os.path.join(directory, file_name))
 for directory, _, files in os.walk(os.path.join(file_dirname, "output")):
 	for file_name in files:
-		if file_name[-2:] != ".o":
+		f = file_name[-2:]
+		if f != ".o" and f != ".a":
 			continue
 		gcc.append(os.path.join(directory, file_name))
 gcc.extend(sys.argv[1:])

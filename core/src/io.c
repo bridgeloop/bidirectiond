@@ -205,7 +205,7 @@ bool bdd_io_state(struct bdd_io *io, enum bdd_io_state new_state) {
 	return true;
 }
 
-// returns the number of bytes read (where 0 is a possible value), returns -4 on rdhup, returns -3 if conversation to be discarded, returns -2 if IO discarded, returns -1 on err
+// returns the number of bytes read (where 0 is a possible value), returns -4 on rdhup, returns -3 if conversation to be discarded, returns -2 if IO discarded due to hup, returns -1 on err
 __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 	struct bdd_conversation *conversation,
 	bdd_io_id io_id,
@@ -254,10 +254,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 			) {
 				return 0;
 			}
-			if (!bdd_io_discard(io)) {
-				goto conversation_discard;
-			}
-			return -2;
+			goto conversation_discard;
 		}
 	} else {
 		r = recv(io->io.fd, buf, sz, 0);
@@ -265,10 +262,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				return 0;
 			}
-			if (!bdd_io_discard(io)) {
-				goto conversation_discard;
-			}
-			return -2;
+			goto conversation_discard;
 		}
 		if (r == 0) {
 			if (bdd_io_hup(io, true)) {
