@@ -54,12 +54,10 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_conversation *conversat
 		return SSL_CLIENT_HELLO_ERROR;
 	}
 
-	unsigned short int name_sz = ntohs(*(unsigned short int *)(&(extension[3])));
+	size_t name_sz = (size_t)ntohs(*(unsigned short int *)(&(extension[3])));
 	const unsigned char *name = (char *)&(extension[5]);
 
-	if (name_sz >= 1 && name[name_sz - 1] == '.') {
-		name_sz -= 1;
-	}
+	bdd_name_trim(name, &(name_sz));
 
 	const unsigned char *alpn;
 	size_t alpn_sz;

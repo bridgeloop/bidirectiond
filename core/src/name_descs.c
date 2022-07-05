@@ -95,15 +95,16 @@ void bdd_name_desc_destroy_hm(struct bdd_name_desc *name_desc, enum hashmap_drop
 
 
 // name_descs hashmap
+void bdd_name_trim(const char *name, size_t *name_sz) {
+	if ((*name_sz) >= 1 && name[(*name_sz) - 1] == '.') { \
+		(*name_sz) -= 1;
+	}
+	return;
+}
 #define bdd_name_descs_prelude() \
 	bool r = false; \
 	struct hashmap *name_descs = (struct hashmap *)bdd_name_descs; \
-	if (scope_sz > 254 || (scope_sz == 254 && scope[253] != '.')) { \
-		return false; \
-	} \
-	if (scope_sz > 0 && scope[scope_sz - 1] == '.') { \
-		scope_sz -= 1; \
-	} \
+	bdd_name_trim(scope, &(scope_sz)); \
 	if (scope_sz > 0 && scope[0] == '*') { \
 		if (scope_sz > 1 && scope[1] != '.') { \
 			return false; \
