@@ -115,32 +115,34 @@ void bdd_conversation_discard(struct bdd_conversation *conversation) {
 	if (conversation->state >= bdd_conversation_obtained) {
 		free(conversation->io_array);
 
-		pthread_mutex_lock(&(bdd_gv.available_conversations.mutex));
+		if (!atomic_load(&(bdd_gv.exiting))) {
+			pthread_mutex_lock(&(bdd_gv.available_conversations.mutex));
 
-		assert(bdd_gv.available_conversations.idx != 0);
+			assert(bdd_gv.available_conversations.idx != 0);
 
-		int id = bdd_conversation_id(conversation);
+			int id = bdd_conversation_id(conversation);
 
-		assert(id >= 0 && id < bdd_gv.n_conversations);
+			assert(id >= 0 && id < bdd_gv.n_conversations);
 
-		bool made_avail = bdd_gv.available_conversations.idx == bdd_gv.n_conversations;
+			bool made_avail = bdd_gv.available_conversations.idx == bdd_gv.n_conversations;
 
-		bdd_gv.available_conversations.ids[--(bdd_gv.available_conversations.idx)] = id;
+			bdd_gv.available_conversations.ids[--(bdd_gv.available_conversations.idx)] = id;
 
-		if (made_avail) {
-			for (size_t idx = 0; idx < bdd_gv.n_workers; ++idx) {
-				struct bdd_worker_data *worker_data = bdd_gv_worker(idx);
-				struct epoll_event ev = {
-					.events = EPOLLIN,
-					.data = { .ptr = NULL, },
-				};
-				if (!atomic_load(&(bdd_gv.exiting)) && epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_MOD, worker_data->serve_fd, &(ev)) != 0) {
-					abort();
+			if (made_avail) {
+				for (size_t idx = 0; idx < bdd_gv.n_workers; ++idx) {
+					struct bdd_worker_data *worker_data = bdd_gv_worker(idx);
+					struct epoll_event ev = {
+						.events = EPOLLIN,
+						.data = { .ptr = NULL, },
+					};
+					if (epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_MOD, worker_data->serve_fd, &(ev)) != 0) {
+						abort();
+					}
 				}
 			}
-		}
 
-		pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
+			pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
+		}
 	}
 	conversation->state = bdd_conversation_unused;
 	return;
