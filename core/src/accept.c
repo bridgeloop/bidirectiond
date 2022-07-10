@@ -71,7 +71,6 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_conversation *conversat
 		if ((size_t)ntohs(*(unsigned short int *)alpn) != alpn_sz - 2) {
 			goto alpn_err;
 		}
-		// skip the 0 byte, and also skip the size byte
 		alpn += 2;
 		alpn_sz -= 2;
 	} else {
