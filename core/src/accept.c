@@ -55,7 +55,7 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_conversation *conversat
 	}
 
 	size_t name_sz = (size_t)ntohs(*(unsigned short int *)(&(extension[3])));
-	const unsigned char *name = (char *)&(extension[5]);
+	const unsigned char *name = (const unsigned char *)&(extension[5]);
 
 	bdd_name_trim(name, &(name_sz));
 
@@ -140,7 +140,7 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_conversation *conversat
 						for (size_t sp_idx = 0; sp[sp_idx] != NULL; ++sp_idx) {
 							if (
 								strncmp(
-									&(alpn[alpn_idx + 1 /* length byte */]),
+									(const char *)&(alpn[alpn_idx + 1 /* length byte */]),
 									sp[sp_idx],
 									alpn_len
 								) == 0

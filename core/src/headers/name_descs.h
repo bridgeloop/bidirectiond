@@ -15,6 +15,6 @@ struct bdd_name_desc {
 	struct bdd_service_instance *service_instances;
 };
 
-void bdd_name_trim(const char *name, size_t *name_sz);
+void bdd_name_trim(const unsigned char *name, size_t *name_sz);
 
 #endif

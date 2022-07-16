@@ -95,7 +95,7 @@ void bdd_name_desc_destroy_hm(struct bdd_name_desc *name_desc, enum hashmap_drop
 
 
 // name_descs hashmap
-void bdd_name_trim(const char *name, size_t *name_sz) {
+void bdd_name_trim(const unsigned char *name, size_t *name_sz) {
 	if ((*name_sz) >= 1 && name[(*name_sz) - 1] == '.') { \
 		(*name_sz) -= 1;
 	}
@@ -113,7 +113,7 @@ void bdd_name_trim(const char *name, size_t *name_sz) {
 		scope_sz -= 1; \
 	} \
 	struct hashmap_key key = HASHMAP_KEY_INITIALIZER; \
-	hashmap_key_obtain(name_descs, &(key), (char *)scope, scope_sz); \
+	hashmap_key_obtain(name_descs, &(key), scope, scope_sz); \
 	struct bdd_name_desc *name_desc; \
 	bool created_name_desc; \
 	if (!hashmap_get(name_descs, &(key), (void *)&(name_desc))) { \
@@ -134,7 +134,7 @@ void bdd_name_trim(const char *name, size_t *name_sz) {
 // it may only add service instances.
 bool bdd_name_descs_add_service_instance(
 	struct bdd_name_descs *bdd_name_descs,
-	const char *scope,
+	const unsigned char *scope,
 	size_t scope_sz,
 	const struct bdd_service *service,
 	const void **instance_info
@@ -175,7 +175,7 @@ bool bdd_name_descs_add_service_instance(
 // internal function
 bool bdd_name_descs_set_cert_pkey(
 	struct bdd_name_descs *bdd_name_descs,
-	const char *scope,
+	const unsigned char *scope,
 	size_t scope_sz,
 	X509 *x509,
 	EVP_PKEY *pkey
@@ -222,7 +222,7 @@ bool bdd_name_descs_use_cert_pkey(
 			int data_length = asn1_str->length;
 			bool s = bdd_name_descs_set_cert_pkey(
 				bdd_name_descs,
-				(char *)asn1_str->data,
+				(const unsigned char *)asn1_str->data,
 				data_length,
 				x509,
 				pkey
@@ -257,7 +257,7 @@ bool bdd_name_descs_use_cert_pkey(
 				int data_length = asn1_str->length;
 				bool s = bdd_name_descs_set_cert_pkey(
 					bdd_name_descs,
-					(char *)asn1_str->data,
+					(const unsigned char *)asn1_str->data,
 					data_length,
 					x509,
 					pkey

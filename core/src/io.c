@@ -569,6 +569,9 @@ enum bdd_cont bdd_io_connect(
 				}
 				return bdd_cont_established;
 			}
+			default: {
+				abort();
+			}
 		}
 	}
 	if (errno == EINPROGRESS) {

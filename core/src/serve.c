@@ -87,6 +87,9 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 				process_link(&(process_list), conversation);
 				break;
 			}
+			default: {
+				abort();
+			}
 		}
 	}
 
@@ -118,6 +121,9 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 							goto conversation_discard;
 						}
 						break;
+					}
+					default: {
+						abort();
 					}
 				}
 				goto remove_event;

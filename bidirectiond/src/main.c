@@ -37,17 +37,11 @@ struct bdd_settings settings = {
 };
 
 #define PASTE(x, y) x##y
-#define sto(sign, w, t) \
+#define stos(w, t) \
 	bool PASTE(sto, w)(t * dest, char *str) { \
-		sign long long int v; \
-		if (strcmp(#sign, "signed") == 0) { \
-			if (!strtolls(str, strlen(str), &(v))) { \
-				return false; \
-			} \
-		} else { \
-			if (!strtollu(str, strlen(str), &(v))) { \
-				return false; \
-			} \
+		signed long long int v; \
+		if (!strtolls(str, strlen(str), &(v))) { \
+			return false; \
 		} \
 		if (v == (t)v) { \
 			*dest = (t)v; \
@@ -55,13 +49,25 @@ struct bdd_settings settings = {
 		} \
 		return false; \
 	}
-sto(signed, i, int);
-sto(unsigned, ui, unsigned int);
-sto(unsigned, usi, unsigned short int);
-sto(signed, uid, uid_t);
-sto(signed, gid, gid_t);
-sto(unsigned, sz, size_t);
-sto(unsigned, rlim, rlim_t);
+#define stou(w, t) \
+	bool PASTE(sto, w)(t * dest, char *str) { \
+		unsigned long long int v; \
+		if (!strtollu(str, strlen(str), &(v))) { \
+			return false; \
+		} \
+		if (v == (t)v) { \
+			*dest = (t)v; \
+			return true; \
+		} \
+		return false; \
+	}
+stos(i, int);
+stou(ui, unsigned int);
+stou(usi, unsigned short int);
+stos(uid, uid_t);
+stos(gid, gid_t);
+stou(sz, size_t);
+stou(rlim, rlim_t);
 
 // main
 #ifndef HASHMAP_MAIN
@@ -78,8 +84,8 @@ int main(int argc, char *argv[], char *env[]) {
 	int *sockfds = NULL;
 	size_t fuck_idx = 0; // to-do: rename that variable
 	struct sockaddr_un input_addr = {
-		0,
 		.sun_family = AF_UNIX,
+		0,
 	};
 	int sig_fd = -1;
 

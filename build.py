@@ -2,8 +2,10 @@
 import os, subprocess, sys
 file_dirname = os.path.dirname(__file__)
 gcc = [
-	"/usr/bin/gcc",
-
+	"/usr/bin/clang",
+	
+	"-fuse-ld=lld", # to-do: mold?
+	"-O2",
 	"-lpthread", "-lssl", "-lcrypto",
 
 	"-o", os.path.join(file_dirname, "output", "bidirectiond"),
