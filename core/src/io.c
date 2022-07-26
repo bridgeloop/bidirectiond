@@ -215,7 +215,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 	if (conversation->remove) {
 		fputs("programming error: bdd_io_read called with an io_id of a discarded conversation\n", stderr);
 		abort();
-		return -3;
+		return -1;
 	}
 	struct bdd_io *io = bdd_io(conversation, io_id);
 	if (io == NULL || buf == NULL || sz <= 0 || conversation->n_blocking > 0) {
@@ -225,7 +225,6 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 	}
 	if (io->state < bdd_io_est || io->rdhup) {
 		fputs("programming error: bdd_io_read called with an io_id which is in an invalid state\n", stderr);
-		printf("io->state %i, io->rdhup %i\n", io->state, io->rdhup);
 		abort();
 		return -1;
 	}
@@ -291,7 +290,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 	if (conversation->remove) {
 		fputs("programming error: bdd_io_write called with an io_id of a discarded conversation\n", stderr);
 		abort();
-		return -3;
+		return -1;
 	}
 	struct bdd_io *io = bdd_io(conversation, io_id);
 	if (io == NULL || buf == NULL || sz <= 0) {
@@ -569,9 +568,7 @@ enum bdd_cont bdd_io_connect(
 				}
 				return bdd_cont_established;
 			}
-			default: {
-				abort();
-			}
+			default:;
 		}
 	}
 	if (errno == EINPROGRESS) {

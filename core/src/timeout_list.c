@@ -16,6 +16,7 @@ time_t bdd_time(void) {
 }
 
 void bdd_tl_link(struct bdd_tl *timeout_list, struct bdd_conversation *conversation) {
+	conversation->tl = true;
 	conversation->next = NULL;
 	conversation->accessed_at = bdd_time();
 	if (timeout_list->head == NULL) {
@@ -48,6 +49,7 @@ void bdd_tl_unlink(struct bdd_tl *timeout_list, struct bdd_conversation *convers
 			timeout_list->tail = NULL;
 		}
 	}
+	conversation->tl = false;
 	conversation->next = NULL;
 	conversation->prev = NULL;
 	return;

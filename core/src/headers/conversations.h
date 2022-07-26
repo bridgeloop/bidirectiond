@@ -36,6 +36,8 @@ struct bdd_conversation {
 	struct bdd_conversation *prev;
 	time_t accessed_at;
 
+	bool tl : 1, remove : 1;
+
 	union {
 		const struct bdd_service *service;
 		struct bdd_service_instance *service_instance;
@@ -47,8 +49,6 @@ struct bdd_conversation {
 	bdd_io_id n_in_epoll_with_events;
 
 	bdd_io_id n_ev;
-
-	bool remove;
 
 	union {
 		struct bdd_associated associated;

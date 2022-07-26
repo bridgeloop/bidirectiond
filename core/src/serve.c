@@ -22,10 +22,27 @@
 #include "headers/bdd_event.h"
 #include "headers/bdd_shutdown_status.h"
 
-static void process_link(struct bdd_conversation **list, struct bdd_conversation *conversation) {
+static inline void process_link(struct bdd_conversation **list, struct bdd_conversation *conversation) {
 	if (conversation->n_ev == 1) {
+		if (*list != NULL) {
+			(*list)->prev = conversation;
+		}
 		conversation->next = *list;
-		*list = conversation;
+		conversation->prev = NULL;
+		(*list) = conversation;
+	}
+	return;
+}
+static inline void process_unlink(struct bdd_conversation **list, struct bdd_conversation *conversation) {
+	struct bdd_conversation *next = conversation->next;
+	struct bdd_conversation *prev = conversation->prev;
+	if (next != NULL) {
+		next->prev = prev;
+	}
+	if (prev != NULL) {
+		prev->next = next;
+	} else {
+		(*list) = next;
 	}
 	return;
 }
@@ -34,6 +51,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 	pthread_sigmask(SIG_BLOCK, &(bdd_gv.sigmask), NULL);
 	unsigned short int next_worker_id = 0;
 	struct bdd_conversation *process_list = NULL;
+	struct bdd_conversation *remove_list = NULL;
 	struct bdd_tl *timeout_list = &(worker_data->timeout_list);
 	int epoll_fd = worker_data->epoll_fd;
 	struct epoll_event *events = worker_data->events;
@@ -63,7 +81,10 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 			continue;
 		}
 		struct bdd_conversation *conversation = io_conversation(io);
-		if (conversation->n_ev == 0) {
+		if (conversation->remove) {
+			continue;
+		}
+		if (conversation->tl) {
 			bdd_tl_unlink(
 				timeout_list,
 				conversation
@@ -72,7 +93,12 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 		switch (conversation->state) {
 			case (bdd_conversation_accept): {
 				if (bdd_accept_continue(conversation) == bdd_cont_conversation_discard) {
-					bdd_conversation_discard(conversation);
+					if (conversation->n_ev >= 1) {
+						process_unlink(&(process_list), conversation);
+					}
+					conversation->remove = true;
+					conversation->next = remove_list;
+					remove_list = conversation;
 				}
 				break;
 			}
@@ -201,6 +227,11 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 		} else {
 			conversation->n_ev = 0;
 		}
+	}
+	while (remove_list != NULL) {
+		struct bdd_conversation *conversation = remove_list;
+		remove_list = conversation->next;
+		bdd_conversation_discard(conversation);
 	}
 
 	goto epoll;

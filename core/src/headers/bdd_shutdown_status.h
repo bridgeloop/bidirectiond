@@ -3,9 +3,9 @@
 
 enum bdd_shutdown_status {
 	bdd_shutdown_conversation_discard,
-	bdd_shutdown_discard,
 	bdd_shutdown_inprogress,
-	bdd_shutdown_complete,
+	bdd_shutdown_complete, // wrhup but no rdhup
+	bdd_shutdown_discard, // wrhup and rdhup
 };
 
 #endif

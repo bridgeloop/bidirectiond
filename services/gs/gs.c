@@ -10,7 +10,7 @@
 #include <stdbool.h>
 
 #define buf_sz_each 0x400
-#define clsvb(idx) (idx == 0 ? 0 : buf_sz_each)
+#define clsvb(id) (buf_sz_each * id)
 
 struct associated {
 	uint8_t flags;
@@ -19,86 +19,87 @@ struct associated {
 	unsigned char buf[];
 };
 
-static uint8_t serve(struct bdd_conversation *conversation, struct associated *a, uint8_t from, uint8_t to) {
+#define clsv(id, flag) (flag << (2 * id))
+#define rdhup 1
+#define shutting 2
+
+static uint8_t serve(struct bdd_conversation *conversation, uint8_t from, uint8_t to) {
+	struct associated *associated = bdd_get_associated(conversation);
 	for (size_t it = 0; it < 10; ++it) {
-		ssize_t r = a->n[to] = bdd_io_read(conversation, from, &(a->buf[clsvb(to)]), buf_sz_each);
-		if (r == -4) {
-			return 2;
+		ssize_t r = associated->n[to] = bdd_io_read(conversation, from, &(associated->buf[clsvb(to)]), buf_sz_each);
+		if (r <= 0) {
+			return r * -1;
 		}
-		if (r <= -1) {
-			return 1;
-		}
-		if (r == 0) {
-			return 0;
-		}
-		r = a->idx[to] = bdd_io_write(conversation, to, &(a->buf[clsvb(to)]), r);
+		r = associated->idx[to] = bdd_io_write(conversation, to, &(associated->buf[clsvb(to)]), r);
 		if (r < 0) {
 			return 1;
 		}
-		if (r != a->n[to]) {
+		if (r != associated->n[to]) {
 			return 0;
 		}
 	}
 	return 0;
 }
 
-#define rdhup 1
-#define called_shutdown 2
-#define wrhup 4
-#define clsv(idx) (idx == 0 ? 0 : 3)
-
 void general_service__handle_events(struct bdd_conversation *conversation) {
-	struct associated *a = bdd_get_associated(conversation);
+	struct associated *associated = bdd_get_associated(conversation);
 	size_t n_ev = bdd_n_ev(conversation);
-	for (size_t idx = 0; idx < n_ev; ++idx) {
+
+	for (bdd_io_id idx = 0; idx < n_ev; ++idx) {
 		struct bdd_ev *ev = bdd_ev(conversation, idx);
 		bdd_io_id io_id = ev->io_id;
-		if (!(ev->events & (bdd_ev_err | bdd_ev_removed))) {
-			break;
-		}
-		if (ev->events & bdd_ev_err) {
-			goto err;
-		}
+
+		// bdd_ev_removed is mutually exclusive of ~bdd_ev_removed
 		if (ev->events & bdd_ev_removed) {
-			bool c = true;
-			if (!(a->flags & (rdhup << clsv(io_id)))) {
-				c = false;
-			}
-			if (!(a->flags & (called_shutdown << clsv(io_id)))) {
-				c = false;
-			}
-			if (c) {
-				a->flags |= (wrhup << clsv(ev->io_id));
-			} else {
+			if (associated->flags & (clsv(io_id, rdhup | shutting)) != clsv(io_id, rdhup | shutting)) {
 				goto err;
 			}
+			return;
 		}
-	}
-	for (size_t idx = 0; idx < n_ev; ++idx) {
-		struct bdd_ev *ev = bdd_ev(conversation, idx);
-		bdd_io_id io_id = ev->io_id;
+
+		// bdd_ev_out is mutually exclusive of bdd_ev_err
 		if (ev->events & bdd_ev_out) {
 			assert(!(ev->events & bdd_ev_in));
-			ssize_t r = bdd_io_write(conversation, io_id, &(a->buf[clsvb(io_id)]), a->n[io_id] - a->idx[io_id]);
+			ssize_t r = bdd_io_write(
+				conversation,
+				io_id,
+				&(associated->buf[clsvb(io_id)]),
+				associated->n[io_id] - associated->idx[io_id]
+			);
 			if (r < 0) {
 				goto err;
 			}
-			a->idx[io_id] += r;
+			associated->idx[io_id] += r;
 		}
+		// bdd_ev_in is mutually exclusive of bdd_ev_out
 		if (ev->events & bdd_ev_in) {
-			switch (serve(conversation, a, io_id, io_id ^ 1)) {
-				case (2): {
-					a->flags |= (rdhup << clsv(io_id));
-					a->flags |= (called_shutdown << clsv(io_id ^ 1));
-					if (bdd_io_shutdown(conversation, io_id ^ 1) != bdd_shutdown_inprogress) {
-						 a->flags |= (wrhup << clsv(io_id ^ 1));
+			switch (serve(conversation, io_id, io_id ^ 1)) {
+				case (4): case (2): { // rdhup
+					associated->flags |= clsv(io_id, rdhup);
+					switch (bdd_io_shutdown(conversation, io_id ^ 1)) {
+						case (bdd_shutdown_conversation_discard): {
+							return;
+						}
+						case (bdd_shutdown_inprogress): {
+							associated->flags |= clsv(io_id ^ 1, shutting);
+							break;
+						}
+						case (bdd_shutdown_complete): case (bdd_shutdown_discard):;
 					}
 					break;
+				}
+				case (3): { // conversation discarded
+					return;
 				}
 				case (1): {
 					goto err;
 				}
+				default:;
 			}
+		}
+
+		if (ev->events & bdd_ev_err) {
+			goto err;
 		}
 	}
 	return;
@@ -133,6 +134,7 @@ bool general_service__conversation_init(
 			}
 		}
 
+		// fixme: connecting can fail after this
 		if (bdd_io_connect(conversation, io_id, addrinfo->ai_addr, addrinfo->ai_addrlen) != bdd_cont_discard) {
 			struct associated *a = malloc(sizeof(struct associated) + (buf_sz_each * 2));
 			if (a == NULL) {

@@ -87,12 +87,13 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 	}
 	conversation->state = bdd_conversation_obtained;
 	conversation->epoll_fd = epoll_fd;
+	conversation->tl = false;
+	conversation->remove = false;
 	conversation->sosi.service_instance = NULL;
 	conversation->io_array = io_array;
 	conversation->n_blocking = 0;
 	conversation->n_in_epoll_with_events = 0;
 	conversation->n_ev = 0;
-	conversation->remove = false;
 	conversation->aopn.pn.protocol_name = NULL;
 	conversation->aopn.pn.cstr_protocol_name = NULL;
 	return conversation;
