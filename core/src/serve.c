@@ -123,6 +123,11 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 		bdd_tl_process(timeout_list);
 	}
 
+	while (remove_list != NULL) {
+		struct bdd_conversation *conversation = remove_list;
+		remove_list = conversation->next;
+		bdd_conversation_discard(conversation);
+	}
 	while (process_list != NULL) {
 		struct bdd_conversation *conversation = process_list;
 		process_list = conversation->next;
@@ -227,11 +232,6 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 		} else {
 			conversation->n_ev = 0;
 		}
-	}
-	while (remove_list != NULL) {
-		struct bdd_conversation *conversation = remove_list;
-		remove_list = conversation->next;
-		bdd_conversation_discard(conversation);
 	}
 
 	goto epoll;
