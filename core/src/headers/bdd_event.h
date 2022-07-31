@@ -5,8 +5,10 @@
 
 #define bdd_ev_in 1
 #define bdd_ev_out 2
-#define bdd_ev_removed 4
-#define bdd_ev_err 8
+#define bdd_ev_err 4
+#define bdd_ev_removed (bdd_ev_removed_err | bdd_ev_removed_hup)
+#define bdd_ev_removed_err 8
+#define bdd_ev_removed_hup 16
 
 struct bdd_ev {
 	uint8_t events;

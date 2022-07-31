@@ -132,7 +132,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 		struct bdd_conversation *conversation = process_list;
 		process_list = conversation->next;
 
-		size_t non_err_idx = 0;
+		size_t non_removed_idx = 0;
 		for (size_t idx = 0; idx < conversation->n_ev;) {
 			struct bdd_ev *ev = bdd_ev(conversation, idx);
 
@@ -147,7 +147,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 						break;
 					}
 					case (bdd_cont_discard): {
-						ev->events = bdd_ev_removed;
+						ev->events = bdd_ev_removed_err;
 						if (!bdd_io_discard(io)) {
 							goto conversation_discard;
 						}
@@ -161,7 +161,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 			} else if (ev->events & bdd_ev_err) {
 				ev->events &= ~bdd_ev_out;
 				if (bdd_io_hup(io, false)) {
-					ev->events = bdd_ev_removed;
+					ev->events = bdd_ev_removed_err;
 					if (!bdd_io_discard(io)) {
 						goto conversation_discard;
 					}
@@ -180,7 +180,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 				} else if (io->state == bdd_io_ssl_shutting) {
 					if (bdd_ssl_shutdown_continue(io) == bdd_shutdown_complete) {
 						if (bdd_io_hup(io, false)) {
-							ev->events = bdd_ev_removed;
+							ev->events = bdd_ev_removed_hup;
 							if (!bdd_io_discard(io)) {
 								goto conversation_discard;
 							}
@@ -209,14 +209,14 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 				remove_event:;
 				memmove(ev, &(ev[1]), (--conversation->n_ev - idx) * sizeof(struct bdd_ev));
 			} else {
-				if (ev->events & (bdd_ev_err | bdd_ev_removed)) {
-					if (non_err_idx != idx) {
+				if (ev->events & bdd_ev_removed) {
+					if (non_removed_idx != idx) {
 						struct bdd_ev this_ev = *ev;
-						struct bdd_ev *non_err_ev = bdd_ev(conversation, non_err_idx);
-						*ev = *non_err_ev;
-						*non_err_ev = this_ev;
+						struct bdd_ev *non_removed_ev = bdd_ev(conversation, non_removed_idx);
+						*ev = *non_removed_ev;
+						*non_removed_ev = this_ev;
 					}
-					non_err_idx += 1;
+					non_removed_idx += 1;
 				}
 				idx += 1;
 			}

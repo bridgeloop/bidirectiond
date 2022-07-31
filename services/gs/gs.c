@@ -1,4 +1,3 @@
-#include <openssl/ssl.h>
 #include <bdd-core/services.h>
 #include <netdb.h>
 #include <string.h>
@@ -13,15 +12,10 @@
 #define clsvb(id) (buf_sz_each * id)
 
 struct associated {
-	uint8_t flags;
 	ssize_t idx[2];
 	ssize_t n[2];
 	unsigned char buf[];
 };
-
-#define clsv(id, flag) (flag << (2 * id))
-#define rdhup 1
-#define shutting 2
 
 static uint8_t serve(struct bdd_conversation *conversation, uint8_t from, uint8_t to) {
 	struct associated *associated = bdd_get_associated(conversation);
@@ -49,12 +43,12 @@ void general_service__handle_events(struct bdd_conversation *conversation) {
 		struct bdd_ev *ev = bdd_ev(conversation, idx);
 		bdd_io_id io_id = ev->io_id;
 
-		// bdd_ev_removed is mutually exclusive of ~bdd_ev_removed
-		if (ev->events & bdd_ev_removed) {
-			if (associated->flags & (clsv(io_id, rdhup | shutting)) != clsv(io_id, rdhup | shutting)) {
-				goto err;
-			}
+		uint8_t removal_reason = ev->events & bdd_ev_removed;
+		if (removal_reason == bdd_ev_removed_hup) {
 			return;
+		}
+		if (removal_reason) {
+			goto err;
 		}
 
 		// bdd_ev_out is mutually exclusive of bdd_ev_err
@@ -75,16 +69,11 @@ void general_service__handle_events(struct bdd_conversation *conversation) {
 		if (ev->events & bdd_ev_in) {
 			switch (serve(conversation, io_id, io_id ^ 1)) {
 				case (4): case (2): { // rdhup
-					associated->flags |= clsv(io_id, rdhup);
 					switch (bdd_io_shutdown(conversation, io_id ^ 1)) {
 						case (bdd_shutdown_conversation_discard): {
 							return;
 						}
-						case (bdd_shutdown_inprogress): {
-							associated->flags |= clsv(io_id ^ 1, shutting);
-							break;
-						}
-						case (bdd_shutdown_complete): case (bdd_shutdown_discard):;
+						default:;
 					}
 					break;
 				}
@@ -140,7 +129,6 @@ bool general_service__conversation_init(
 			if (a == NULL) {
 				return false;
 			}
-			a->flags = 0;
 			bdd_set_associated(conversation, a, NULL);
 			return true;
 		}

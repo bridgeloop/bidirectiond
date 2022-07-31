@@ -85,6 +85,8 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 		io_array[idx].state = bdd_io_unused;
 		io_array[idx].conversation_id = id;
 	}
+	conversation->prev = NULL;
+	conversation->next = NULL;
 	conversation->state = bdd_conversation_obtained;
 	conversation->epoll_fd = epoll_fd;
 	conversation->tl = false;
@@ -116,6 +118,8 @@ void bdd_conversation_discard(struct bdd_conversation *conversation) {
 	if (conversation->state >= bdd_conversation_obtained) {
 		free(conversation->io_array);
 
+		conversation->state = bdd_conversation_unused;
+
 		if (!atomic_load(&(bdd_gv.exiting))) {
 			pthread_mutex_lock(&(bdd_gv.available_conversations.mutex));
 
@@ -145,6 +149,5 @@ void bdd_conversation_discard(struct bdd_conversation *conversation) {
 			pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
 		}
 	}
-	conversation->state = bdd_conversation_unused;
 	return;
 }
