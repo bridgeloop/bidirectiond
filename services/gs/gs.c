@@ -17,7 +17,7 @@ struct associated {
 	unsigned char buf[];
 };
 
-static uint8_t serve(struct bdd_conversation *conversation, uint8_t from, uint8_t to) {
+static inline uint8_t serve(struct bdd_conversation *conversation, uint8_t from, uint8_t to) {
 	struct associated *associated = bdd_get_associated(conversation);
 	for (size_t it = 0; it < 10; ++it) {
 		ssize_t r = associated->n[to] = bdd_io_read(conversation, from, &(associated->buf[clsvb(to)]), buf_sz_each);
@@ -51,7 +51,6 @@ void general_service__handle_events(struct bdd_conversation *conversation) {
 			goto err;
 		}
 
-		// bdd_ev_out is mutually exclusive of bdd_ev_err
 		if (ev->events & bdd_ev_out) {
 			assert(!(ev->events & bdd_ev_in));
 			ssize_t r = bdd_io_write(
@@ -65,7 +64,6 @@ void general_service__handle_events(struct bdd_conversation *conversation) {
 			}
 			associated->idx[io_id] += r;
 		}
-		// bdd_ev_in is mutually exclusive of bdd_ev_out
 		if (ev->events & bdd_ev_in) {
 			switch (serve(conversation, io_id, io_id ^ 1)) {
 				case (4): case (2): { // rdhup
