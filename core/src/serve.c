@@ -144,7 +144,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 						if (!bdd_io_state(io, bdd_io_est)) {
 							goto conversation_discard;
 						}
-						break;
+						goto remove_event;
 					}
 					case (bdd_cont_discard): {
 						ev->events = bdd_ev_removed_err;
@@ -153,11 +153,13 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 						}
 						break;
 					}
+					case (bdd_cont_inprogress): {
+						goto remove_event;
+					}
 					default: {
 						abort();
 					}
 				}
-				goto remove_event;
 			} else if (ev->events & bdd_ev_err) {
 				ev->events &= ~bdd_ev_out;
 				if (bdd_io_hup(io, false)) {

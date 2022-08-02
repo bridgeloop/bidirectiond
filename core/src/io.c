@@ -466,6 +466,10 @@ bool bdd_io_prep_ssl(struct bdd_conversation *conversation, bdd_io_id io_id, cha
 		fputs("programming error: bdd_io_prep_ssl called with an io_id which is in an invalid state\n", stderr);
 		abort();
 	}
+	if (ssl_name == NULL) {
+		fputs("programming error: ssl_name == NULL\n", stderr);
+		abort();
+	}
 	SSL *ssl = SSL_new(bdd_gv.cl_ssl_ctx);
 	if (ssl == NULL) {
 		goto err;
@@ -511,10 +515,6 @@ bool bdd_io_prep_ssl(struct bdd_conversation *conversation, bdd_io_id io_id, cha
 	return true;
 
 	err:;
-	/*io->ssl = 0;
-	if (io->state == bdd_io_prepd_ssl) {
-		bdd_io_state(io, bdd_io_obtained);
-	}*/
 	if (ssl != NULL) {
 		SSL_free(ssl);
 	}

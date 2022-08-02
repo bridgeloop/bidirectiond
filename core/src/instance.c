@@ -142,6 +142,9 @@ bool bdd_go(struct bdd_settings settings) {
 	SSL_CTX_set_min_proto_version(cl_ssl_ctx, TLS1_3_VERSION);
 	SSL_CTX_set_max_proto_version(cl_ssl_ctx, TLS1_3_VERSION);
 	bdd_gv.cl_ssl_ctx = cl_ssl_ctx;
+	if (!SSL_CTX_set_default_verify_paths(cl_ssl_ctx)) {
+		goto err;
+	}
 
 	// sigmask
 	bdd_gv.sigmask = settings.sigmask;
