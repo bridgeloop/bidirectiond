@@ -111,16 +111,11 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_conversation *conversat
 					const char *const *sp = inst->service->supported_protocols;
 					// service supports any protocol (wildcard)
 					if (sp == NULL) {
-						// if we have not found any services which a more
-						// specific protocol of the client's choice yet...
+						// if we have not found any services that suppprt a
+						// more specific protocol of the client's choice yet...
 						if (found == NULL) {
 							// ...then use this service
 							found = inst;
-							uint8_t alpn_len = alpn[0];
-							// bounds checking
-							if (alpn_len == 0 || alpn_sz - 1 < alpn_len) {
-								return SSL_CLIENT_HELLO_ERROR;
-							}
 							assert(conversation->aopn.pn.protocol_name == NULL);
 							assert(conversation->aopn.pn.cstr_protocol_name == NULL);
 						}
