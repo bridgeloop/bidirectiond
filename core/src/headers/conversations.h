@@ -15,6 +15,11 @@ struct bdd_service;
 struct bdd_io;
 
 #define io_conversation(io) (&(bdd_gv.conversations[io->conversation_id]))
+#define _conversation_next(conversation) (&(bdd_gv.conversations[conversation->next]))
+#define _conversation_prev(conversation) (&(bdd_gv.conversations[conversation->prev]))
+#define conversation_next(conversation) (conversation->next != -1 ? _conversation_next(conversation) : NULL)
+#define conversation_prev(conversation) (conversation->prev != -1 ? _conversation_prev(conversation) : NULL)
+#define conversation_id(conversation) (conversation == NULL ? -1 : (int)(((char *)bdd_gv.conversations - (char *)conversation) / sizeof(struct bdd_conversation)))
 
 struct bdd_associated {
 	void *data;
@@ -32,8 +37,8 @@ struct bdd_conversation {
 	enum bdd_conversation_state state;
 	int epoll_fd;
 
-	struct bdd_conversation *next;
-	struct bdd_conversation *prev;
+	int next;
+	int prev;
 	time_t accessed_at;
 
 	bool tl : 1, remove : 1;

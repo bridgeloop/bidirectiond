@@ -85,8 +85,6 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 		io_array[idx].state = bdd_io_unused;
 		io_array[idx].conversation_id = id;
 	}
-	conversation->prev = NULL;
-	conversation->next = NULL;
 	conversation->state = bdd_conversation_obtained;
 	conversation->epoll_fd = epoll_fd;
 	conversation->tl = false;

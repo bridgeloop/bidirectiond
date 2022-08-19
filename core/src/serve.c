@@ -25,22 +25,22 @@
 static inline void process_link(struct bdd_conversation **list, struct bdd_conversation *conversation) {
 	if (conversation->n_ev == 1) {
 		if (*list != NULL) {
-			(*list)->prev = conversation;
+			(*list)->prev = conversation_id(conversation);
 		}
-		conversation->next = *list;
-		conversation->prev = NULL;
+		conversation->next = conversation_id(*list);
+		conversation->prev = -1;
 		(*list) = conversation;
 	}
 	return;
 }
 static inline void process_unlink(struct bdd_conversation **list, struct bdd_conversation *conversation) {
-	struct bdd_conversation *next = conversation->next;
-	struct bdd_conversation *prev = conversation->prev;
+	struct bdd_conversation *next = conversation_next(conversation);
+	struct bdd_conversation *prev = conversation_prev(conversation);
 	if (next != NULL) {
-		next->prev = prev;
+		next->prev = conversation_id(prev);
 	}
 	if (prev != NULL) {
-		prev->next = next;
+		prev->next = conversation_id(next);
 	} else {
 		(*list) = next;
 	}
@@ -97,7 +97,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 						process_unlink(&(process_list), conversation);
 					}
 					conversation->remove = true;
-					conversation->next = remove_list;
+					conversation->next = conversation_id(remove_list);
 					remove_list = conversation;
 				}
 				break;
@@ -125,12 +125,12 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 
 	while (remove_list != NULL) {
 		struct bdd_conversation *conversation = remove_list;
-		remove_list = conversation->next;
+		remove_list = conversation_next(conversation);
 		bdd_conversation_discard(conversation);
 	}
 	while (process_list != NULL) {
 		struct bdd_conversation *conversation = process_list;
-		process_list = conversation->next;
+		process_list = conversation_next(conversation);
 
 		size_t non_removed_idx = 0;
 		for (size_t idx = 0; idx < conversation->n_ev;) {
