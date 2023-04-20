@@ -1,4 +1,4 @@
-#include <bdd-core/services.h>
+#include "../../bdd/headers/services.h"
 #include <netdb.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -127,7 +127,7 @@ bool general_service__conversation_init(
 			if (a == NULL) {
 				return false;
 			}
-			bdd_set_associated(conversation, a, NULL);
+			bdd_set_associated(conversation, a, free);
 			return true;
 		}
 	}
@@ -144,7 +144,6 @@ void general_service__instance_info_destructor(void *hint) {
 	return;
 }
 static bool handle_s(
-	struct bdd_name_descs *name_descriptions,
 	const struct bdd_service *service,
 	const char *scope,
 	const char *addr,
@@ -174,17 +173,15 @@ static bool handle_s(
 	info->addrinfo = res;
 	res = NULL;
 
-	if (!bdd_name_descs_add_service_instance(name_descriptions, scope, strlen(scope), service, (void *)&(info))) {
-		goto err;
+	if (bdd_name_descs_add_service_instance(scope, strlen(scope), service, (void *)info)) {
+		return true;
 	}
-	return true;
 
 	err:;
 	general_service__instance_info_destructor(info);
 	return false;
 }
 bool general_service__instantiate(
-	struct bdd_name_descs *name_descriptions,
 	const struct bdd_service *service,
 	size_t argc,
 	const char **argv
@@ -201,7 +198,7 @@ bool general_service__instantiate(
 		} else {
 			return false;
 		}
-		return handle_s(name_descriptions, service, argv[1], argv[2], argv[3], use_tls);
+		return handle_s(service, argv[1], argv[2], argv[3], use_tls);
 	}
 	return false;
 }

@@ -1,4 +1,4 @@
-[submodule "core/hashmap"]
-	path = core/hashmap
+[submodule "hashmap"]
+	path = hashmap
 	url = https://git.tcp.direct/aiden/hashmap.git
 	branch = main

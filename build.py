@@ -10,14 +10,15 @@ gcc = [
 
 	"-o", os.path.join(file_dirname, "output", "bidirectiond"),
 
-	"-I" + os.path.join(file_dirname, "inc")
+	"-I" + os.path.join(file_dirname, "bdd", "headers"),
+	"-I" + os.path.join(file_dirname, "hashmap", "src"),
 ]
-for directory, _, files in os.walk(os.path.join(file_dirname, "bidirectiond")):
+for directory, _, files in os.walk(os.path.join(file_dirname, "cmd")):
 	for file_name in files:
 		if file_name[-2:] != ".c":
 			continue
 		gcc.append(os.path.join(directory, file_name))
-for directory, _, files in os.walk(os.path.join(file_dirname, "core")):
+for directory, _, files in os.walk(os.path.join(file_dirname, "bdd")):
 	for file_name in files:
 		if file_name[-2:] != ".c":
 			continue

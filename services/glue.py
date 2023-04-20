@@ -35,7 +35,7 @@ def append_service(service):
 	value = service[key]
 	if type(value) != str:
 		raise Exception("error")
-	declarations += f"bool {value}(struct bdd_name_descs *name_descs, const struct bdd_service *service, size_t n_arguments, const char **arguments);"
+	declarations += f"bool {value}(const struct bdd_service *service, size_t n_arguments, const char **arguments);"
 	service_str += f".{key} = &({value}),"
 	#
 	key = "handle_events"
@@ -90,7 +90,7 @@ for path in glob.glob(os.path.join(dir_path, "*/service.json")):
 services += "};const size_t n_services = " + str(n_services) + ";"
 
 fd = tempfile.NamedTemporaryFile(delete=False, suffix=".c")
-fd.write(b"#include <bdd-core/settings.h>\n" + bytes(declarations, "ascii") + bytes(services, "ascii"))
+fd.write(b"#include <settings.h>\n" + bytes(declarations, "ascii") + bytes(services, "ascii"))
 fd.close()
 subprocess.run([
 	"gcc",
@@ -98,6 +98,6 @@ subprocess.run([
 	"-c", fd.name,
 	"-o", os.path.join(dir_path, "..", "output", "glue.o"),
 
-	"-I" + os.path.join(dir_path, "..", "inc"),
+	"-I" + os.path.join(dir_path, "..", "bdd", "headers"),
 ])
 os.unlink(fd.name)
