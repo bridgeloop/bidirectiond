@@ -382,6 +382,7 @@ enum bdd_shutdown_status bdd_ssl_shutdown_continue(struct bdd_io *io) {
 		}
 		// ungraceful shutdown
 	}
+	shutdown(bdd_io_fd(io), SHUT_WR);
 	return bdd_shutdown_complete;
 }
 
