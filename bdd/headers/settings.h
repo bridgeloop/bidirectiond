@@ -4,7 +4,6 @@
 #include <openssl/ssl.h>
 #include <stdbool.h>
 
-#include "../src/headers/name_descs.h"
 #include "../src/headers/bdd_settings.h"
 #include "../src/headers/bdd_service.h"
 #include "../src/headers/bdd_stop.h"

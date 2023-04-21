@@ -16,7 +16,7 @@ def append_service(service):
 		value = service[key]
 		if type(value) != str:
 			raise Exception("error")
-		declarations += f"bool {value}(struct bdd_conversation *conversation, const char *protocol_name, const void *instance_info, uint8_t client_id, struct sockaddr client_sockaddr);"
+		declarations += f"bool {value}(struct bdd_conversation *conversation, const char *protocol_name, const void *instance_info, bdd_io_id client_id, struct sockaddr client_sockaddr);"
 	else:
 		value = "NULL"
 	service_str += f".{key} = &({value}),"

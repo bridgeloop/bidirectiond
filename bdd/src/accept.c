@@ -185,7 +185,8 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_ssl_cb_ctx *ctx) {
 			}
 		}
 		if (name_sz == 0) {
-			return SSL_AD_UNRECOGNIZED_NAME;
+			*alert = SSL_AD_UNRECOGNIZED_NAME;
+			return SSL_CLIENT_HELLO_ERROR;
 		}
 		do {
 			idx += 1;

@@ -1,6 +1,7 @@
 #ifndef bidirectiond__bdd_service__h
 #define bidirectiond__bdd_service__h
 
+#include "bidirectiond_n_io.h"
 #include <stddef.h>
 #include <stdbool.h>
 #include <sys/socket.h>
@@ -14,7 +15,7 @@ struct bdd_service {
 		struct bdd_conversation *conversation,
 		const char *protocol_name,
 		const void *instance_info,
-		uint8_t client_id,
+		bdd_io_id client_id,
 		struct sockaddr client_sockaddr
 	);
 

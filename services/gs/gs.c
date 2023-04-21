@@ -17,7 +17,7 @@ struct associated {
 	unsigned char buf[];
 };
 
-static inline uint8_t serve(struct bdd_conversation *conversation, uint8_t from, uint8_t to) {
+static inline uint8_t serve(struct bdd_conversation *conversation, bdd_io_id from, bdd_io_id to) {
 	struct associated *associated = bdd_get_associated(conversation);
 	for (size_t it = 0; it < 10; ++it) {
 		ssize_t r = associated->n[to] = bdd_io_read(conversation, from, &(associated->buf[clsvb(to)]), buf_sz_each);
@@ -104,7 +104,7 @@ bool general_service__conversation_init(
 	struct bdd_conversation *conversation,
 	const char *protocol_name,
 	const void *service_info,
-	uint8_t client_id,
+	bdd_io_id client_id,
 	struct sockaddr client_sockaddr
 ) {
 	const struct general_service__info *info = service_info;

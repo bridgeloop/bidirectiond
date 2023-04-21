@@ -1,10 +1,8 @@
-#ifndef bdd__bidirectiond_n_io__h
-#define bdd__bidirectiond_n_io__h
-typedef unsigned short int bdd_io_id;
 #ifndef BIDIRECTIOND_N_IO
-#define BIDIRECTIOND_N_IO 2
-#endif
-#include <limits.h>
-#include <assert.h>
-static_assert(BIDIRECTIOND_N_IO < USHRT_MAX, "BIDIRECTIOND_N_IO is greater than or equal to USHRT_MAX");
+
+#define BIDIRECTIOND_N_IO 2ULL
+typedef unsigned short int bdd_io_id;
+
+struct BDD_STATIC_ASSERT_BIDIRECTIOND_N_IO { char ASSERT : (BIDIRECTIOND_N_IO < (unsigned long long int)(bdd_io_id)(-1) ? 1 : 0); };
+
 #endif
