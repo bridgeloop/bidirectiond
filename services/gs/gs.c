@@ -51,6 +51,15 @@ void general_service__handle_events(struct bdd_conversation *conversation) {
 			goto err;
 		}
 
+		if (ev->events & bdd_ev_err) {
+			goto err;
+		}
+	}
+
+	for (bdd_io_id idx = 0; idx < n_ev; ++idx) {
+		struct bdd_ev *ev = bdd_ev(conversation, idx);
+		bdd_io_id io_id = ev->io_id;
+
 		if (ev->events & bdd_ev_out) {
 			assert(!(ev->events & bdd_ev_in));
 			ssize_t r = bdd_io_write(
@@ -84,11 +93,8 @@ void general_service__handle_events(struct bdd_conversation *conversation) {
 				default:;
 			}
 		}
-
-		if (ev->events & bdd_ev_err) {
-			goto err;
-		}
 	}
+
 	return;
 
 	err:;

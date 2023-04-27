@@ -109,9 +109,9 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 				struct bdd_ev *ev = bdd_ev(conversation, conversation->n_ev++);
 				ev->io_id = bdd_io_id_of(io);
 				ev->events = (
-					(event->events & EPOLLIN ? bdd_ev_in : 0) |
-					(event->events & EPOLLOUT ? bdd_ev_out : 0) |
-					(event->events & EPOLLERR ? bdd_ev_err : 0)
+					((event->events & EPOLLIN) ? bdd_ev_in : 0) |
+					((event->events & EPOLLOUT) ? bdd_ev_out : 0) |
+					((event->events & EPOLLERR) ? bdd_ev_err : 0)
 				);
 				process_link(&(process_list), conversation);
 				break;
@@ -144,6 +144,9 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 			if (io->state == bdd_io_connecting) {
 				switch (bdd_connect_continue(io)) {
 					case (bdd_cont_established): {
+						if (ev->events & bdd_ev_err) {
+							ev->events &= ~bdd_ev_out;
+						}
 						if (!bdd_io_state(io, bdd_io_est)) {
 							goto conversation_discard;
 						}
