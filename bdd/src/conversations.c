@@ -45,25 +45,20 @@ void bdd_conversation_remove_later(struct bdd_conversation *conversation) {
 }
 
 struct bdd_ev *bdd_ev(struct bdd_conversation *conversation, bdd_io_id idx) {
-	if (idx >= conversation->n_ev) {
+	if (idx < 0 || idx >= conversation->n_ev) {
 		abort();
 	}
-	return &(((struct bdd_ev *)&(conversation->io_array[BIDIRECTIOND_N_IO]))[idx]);
+	return &(conversation->ev[idx]);
 }
-bdd_io_id bdd_n_ev(struct bdd_conversation *conversation) {
+inline bdd_io_id bdd_n_ev(struct bdd_conversation *conversation) {
 	return conversation->n_ev;
 }
 
 struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
-	struct bdd_io *io_array = malloc((sizeof(struct bdd_io) * BIDIRECTIOND_N_IO) + (sizeof(struct bdd_ev) * BIDIRECTIOND_N_IO));
-	if (io_array == NULL) {
-		return NULL;
-	}
 	struct bdd_conversation *conversation;
 	pthread_mutex_lock(&(bdd_gv.available_conversations.mutex));
 	if (atomic_load(&(bdd_gv.exiting)) || bdd_gv.available_conversations.idx == bdd_gv.n_conversations) {
 		pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
-		free(io_array);
 		return NULL;
 	}
 	int id = bdd_gv.available_conversations.ids[bdd_gv.available_conversations.idx++];
@@ -81,6 +76,7 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 	}
 	pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
 	conversation = &(bdd_gv.conversations[id]);
+	struct bdd_io *io_array = conversation->io_array;
 	for (size_t idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
 		io_array[idx].state = bdd_io_unused;
 		io_array[idx].conversation_id = id;
@@ -90,7 +86,6 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 	conversation->tl = false;
 	conversation->remove = false;
 	conversation->sosi.service_instance = NULL;
-	conversation->io_array = io_array;
 	conversation->n_blocking = 0;
 	conversation->n_in_epoll_with_events = 0;
 	conversation->n_ev = 0;
@@ -114,8 +109,6 @@ void bdd_conversation_discard(struct bdd_conversation *conversation) {
 		}
 	}
 	if (conversation->state >= bdd_conversation_obtained) {
-		free(conversation->io_array);
-
 		conversation->state = bdd_conversation_unused;
 
 		if (!atomic_load(&(bdd_gv.exiting))) {

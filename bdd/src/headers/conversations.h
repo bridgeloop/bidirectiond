@@ -7,6 +7,7 @@
 #include <time.h>
 #include <sys/socket.h>
 
+#include "bdd_event.h"
 #include "bdd_io.h"
 #include "bdd_shutdown_status.h"
 #include "bidirectiond_n_io.h"
@@ -48,12 +49,13 @@ struct bdd_conversation {
 		struct bdd_service_instance *service_instance;
 	} sosi;
 
-	struct bdd_io *io_array;
+	struct bdd_io io_array[BIDIRECTIOND_N_IO];
 
 	bdd_io_id n_blocking;
 	bdd_io_id n_in_epoll_with_events;
 
 	bdd_io_id n_ev;
+	struct bdd_ev ev[BIDIRECTIOND_N_IO];
 
 	struct bdd_associated associated;
 };

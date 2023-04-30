@@ -18,7 +18,7 @@
 
 bdd_io_id bdd_io_id_of(struct bdd_io *io) {
 	struct bdd_conversation *conversation = io_conversation(io);
-	return (((char *)io - (char *)conversation->io_array) / sizeof(struct bdd_io));
+	return (bdd_io_id)(io - conversation->io_array);
 }
 
 struct bdd_io *bdd_io(struct bdd_conversation *conversation, bdd_io_id io_id) {
@@ -36,15 +36,15 @@ int bdd_io_fd(struct bdd_io *io) {
 	}
 }
 
-uint32_t bdd_epoll_to_epoll(uint8_t bdd_epoll) {
+uint32_t bdd_bepoll_to_epoll(uint8_t bepoll) {
 	uint32_t output = 0;
-	if (bdd_epoll & bdd_epoll_in) {
+	if (bepoll & bdd_epoll_in) {
 		output |= EPOLLIN;
 	}
-	if (bdd_epoll & bdd_epoll_out) {
+	if (bepoll & bdd_epoll_out) {
 		output |= EPOLLOUT;
 	}
-	if (bdd_epoll & bdd_epoll_et) {
+	if (bepoll & bdd_epoll_et) {
 		output |= EPOLLET;
 	}
 	return output;
@@ -73,7 +73,7 @@ void bdd_io_epoll_mod(struct bdd_io *io, uint8_t remove_events, uint8_t add_even
 			io_conversation(io)->n_in_epoll_with_events -= 1;
 		}
 		struct epoll_event ev = {
-			.events = bdd_epoll_to_epoll(io->epoll_events),
+			.events = bdd_bepoll_to_epoll(io->epoll_events),
 			.data = { .ptr = io, },
 		};
 		if (epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_MOD, bdd_io_fd(io), &(ev)) != 0) {
@@ -89,7 +89,7 @@ bool bdd_io_epoll_add(struct bdd_io *io) {
 	}
 	io->in_epoll = 1;
 	struct epoll_event ev = {
-		.events = bdd_epoll_to_epoll(io->epoll_events),
+		.events = bdd_bepoll_to_epoll(io->epoll_events),
 		.data = { .ptr = io, },
 	};
 	if (epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_ADD, bdd_io_fd(io), &(ev)) != 0) {
