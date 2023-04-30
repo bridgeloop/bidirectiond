@@ -15,4 +15,6 @@ void bdd_tl_process(struct bdd_tl *timeout_list);
 
 void bdd_tl_init(struct bdd_tl *timeout_list);
 
+time_t bdd_time(void);
+
 #endif

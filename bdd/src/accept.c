@@ -8,8 +8,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
-#include <arpa/inet.h>
+#include <netinet/in.h>
 
+#include "headers/bdd_cont.h"
 #include "headers/instance.h"
 #include "headers/accept.h"
 #include "headers/serve.h"
@@ -209,6 +210,8 @@ enum bdd_cont bdd_accept_continue(struct bdd_ssl_cb_ctx *ctx) {
 		return bdd_cont_conversation_discard;
 	}
 
+	BDD_CONVERSATION_AGE_MS(conversation, "accept");
+
 	int fd = bdd_io_fd(io);
 
 	struct bdd_service_instance *service_inst = conversation->sosi.service_instance;
@@ -279,13 +282,11 @@ void bdd_accept(struct bdd_worker_data *worker_data) {
 	}
 
 	// accept
-	BDD_DEBUG_LOG("accepting tcp connection\n");
 	fd = accept(worker_data->serve_fd, NULL, NULL);
 	if (fd < 0) {
 		BDD_DEBUG_LOG("rejected tcp connection\n");
 		goto err;
 	}
-	BDD_DEBUG_LOG("accepted tcp connection\n");
 	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
 
 	if (!SSL_set_fd(ssl, fd)) {

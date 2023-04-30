@@ -35,6 +35,8 @@ struct bdd_gv bdd_gv = {
 
 	.worker = NULL,
 	.workers_idx = 0,
+
+	.tcp_nodelay = true,
 };
 
 SSL_CTX *bdd_ssl_ctx_skel(void) {
@@ -130,8 +132,13 @@ bool bdd_go(struct bdd_settings settings) {
 	) {
 		return false;
 	}
-	
+
+	bdd_gv.tcp_nodelay = settings.tcp_nodelay;
 	bdd_gv.n_workers = sysconf(_SC_NPROCESSORS_ONLN);
+
+	#ifndef NDEBUG
+	bdd_gv.n_workers = 1;
+	#endif
 
 	bool locked = false;
 

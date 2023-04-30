@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <netinet/tcp.h>
 
 #include "core_settings.h"
 #include "cp_pwd.h"
@@ -32,6 +33,7 @@ struct bdd_settings settings = {
 	.n_epoll_oevents = 0x200,
 	.epoll_timeout = -1,
 	.sockfds = NULL,
+	.tcp_nodelay = true,
 };
 
 #define PASTE(x, y) x##y
@@ -86,10 +88,13 @@ int main(int argc, char *argv[], char *env[]) {
 	};
 	int sig_fd = -1;
 
-	size_t n_threads = sysconf(_SC_NPROCESSORS_ONLN) /* workers */;
+	size_t n_workers = sysconf(_SC_NPROCESSORS_ONLN);
+	#ifndef NDEBUG
+	n_workers = 1;
+	#endif
 
 	// name_descs
-	if (!bdd_name_descs_create(n_threads + 1)) {
+	if (!bdd_name_descs_create(n_workers + 1)) {
 		fputs("failed to allocate name_descs\n", stderr);
 		goto clean_up;
 	}
@@ -259,10 +264,9 @@ int main(int argc, char *argv[], char *env[]) {
 				strcpy(input_addr.sun_path, arg[1]);
 			}
 			arg += 2;
-		} else if (strcmp((*arg), "--big-alloc") == 0) {
-			EXPECT_ARGS(1);
-			EXPECT(stosz(&(big_alloc_sz), arg[1]));
-			arg += 2;
+		} else if (strcmp((*arg), "--tcp-delay") == 0) {
+			settings.tcp_nodelay = false;
+			arg += 1;
 		} else {
 			for (size_t idx = 0; idx < n_services; ++idx) {
 				if (services[idx].supported_arguments != NULL)
@@ -307,7 +311,7 @@ int main(int argc, char *argv[], char *env[]) {
 			     "that some bidirectiond settings can be modified "
 			     "without restarting\n"
 			     "--n-epoll-oevents: epoll_wait maxevents\n"
-			     "--big-alloc: reserve some memory\n", stdout);
+			     "--tcp-delay: disables tcp_nodelay\n", stdout);
 			for (size_t idx = 0; idx < n_services; ++idx) {
 				if (services[idx].arguments_help != NULL) {
 					fputs(services[idx].arguments_help, stdout);
@@ -343,11 +347,11 @@ int main(int argc, char *argv[], char *env[]) {
 		sv_addr.inet6.sin6_port = htons(port);
 	}
 	// try to bind to port
-	sockfds = malloc(sizeof(int) * n_threads);
+	sockfds = malloc(sizeof(int) * n_workers);
 	if (sockfds == NULL) {
 		goto clean_up;
 	}
-	for (; fuck_idx < n_threads; ++fuck_idx) {
+	for (; fuck_idx < n_workers; ++fuck_idx) {
 		int fd = socket(af, SOCK_STREAM | SOCK_NONBLOCK, 0);
 		if (fd < 0) {
 			fprintf(stderr, "failed to create sv_socket! errno: %i\n", errno);
@@ -355,6 +359,10 @@ int main(int argc, char *argv[], char *env[]) {
 		}
 		int opt = 1;
 		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &(opt), sizeof(opt));
+		if (settings.tcp_nodelay) {
+			assert(opt == 1);
+			setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &(opt), sizeof(int));
+		}
 		if (bind(fd, (struct sockaddr *)&(sv_addr), sv_addr_sz) < 0) {
 			fprintf(stderr, "failed to bind sv_socket! errno: %i\n", errno);
 			goto sock_err;

@@ -1,5 +1,6 @@
 #include "../../bdd/headers/services.h"
 #include <netdb.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -19,7 +20,7 @@ struct associated {
 
 static inline uint8_t serve(struct bdd_conversation *conversation, bdd_io_id from, bdd_io_id to) {
 	struct associated *associated = bdd_get_associated(conversation);
-	for (size_t it = 0; it < 10; ++it) {
+	for (size_t it = 0;; ++it) {
 		ssize_t r = associated->n[to] = bdd_io_read(conversation, from, &(associated->buf[clsvb(to)]), buf_sz_each);
 		if (r <= 0) {
 			return r * -1;
@@ -74,7 +75,8 @@ void general_service__handle_events(struct bdd_conversation *conversation) {
 			associated->idx[io_id] += r;
 		}
 		if (ev->events & bdd_ev_in) {
-			switch (serve(conversation, io_id, io_id ^ 1)) {
+			int r = serve(conversation, io_id, io_id ^ 1);
+			switch (r) {
 				case (4): case (2): { // rdhup
 					switch (bdd_io_shutdown(conversation, io_id ^ 1)) {
 						case (bdd_shutdown_conversation_discard): {

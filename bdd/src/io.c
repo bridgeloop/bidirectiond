@@ -8,6 +8,8 @@
 #include <fcntl.h>
 #include <alloca.h>
 #include <errno.h>
+#include <netinet/tcp.h>
+#include <netinet/in.h>
 
 #include "headers/instance.h"
 #include "headers/accept.h"
@@ -15,6 +17,7 @@
 #include "headers/bdd_service.h"
 #include "headers/bdd_io.h"
 #include "headers/bidirectiond_n_io.h"
+#include "headers/debug_log.h"
 
 bdd_io_id bdd_io_id_of(struct bdd_io *io) {
 	struct bdd_conversation *conversation = io_conversation(io);
@@ -62,6 +65,8 @@ void bdd_io_epoll_mod(struct bdd_io *io, uint8_t remove_events, uint8_t add_even
 	#ifndef NDEBUG
 	if (io->rdhup) {
 		assert(!(io->epoll_events & bdd_epoll_in));
+	} else {
+		assert(io->epoll_events & bdd_epoll_in);
 	}
 	#endif
 	if (io->in_epoll) {
@@ -117,6 +122,9 @@ void bdd_io_epoll_remove(struct bdd_io *io) {
 
 bool bdd_io_hup(struct bdd_io *io, bool rdhup) {
 	assert(io->state >= bdd_io_est);
+	#ifndef NDEBUG
+	BDD_DEBUG_LOG("conversation: %p, io: %i, %shup\n", io_conversation(io), bdd_io_id_of(io), rdhup ? "rd" : "wr");
+	#endif
 	if (rdhup) {
 		io->rdhup = 1;
 	} else {
@@ -246,10 +254,7 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 				bdd_io_epoll_mod(io, bdd_epoll_in, 0, false);
 				return -4;
 			} else if (
-				(
-					err == SSL_ERROR_WANT_READ /* read all of the bytes and no close_notify received */ ||
-					err == SSL_ERROR_NONE
-				)
+				err == SSL_ERROR_WANT_READ /* read all of the bytes and no close_notify received */
 			) {
 				return 0;
 			}
@@ -541,6 +546,12 @@ enum bdd_cont bdd_io_connect(
 		abort();
 	}
 	int fd = socket(sockaddr->sa_family, SOCK_STREAM | SOCK_NONBLOCK, 0);
+
+	if (bdd_gv.tcp_nodelay) {
+		int flag = 1;
+		setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &(flag), sizeof(int));
+	}
+	
 	if (fd < 0) {
 		goto err;
 	}

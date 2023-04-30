@@ -44,6 +44,8 @@ struct bdd_gv {
 	unsigned short int n_workers;
 	struct bdd_worker_data *worker;
 	unsigned short int workers_idx;
+
+	bool tcp_nodelay;
 };
 #define bdd_gv_worker(idx) (struct bdd_worker_data *)((char *)bdd_gv.worker + ((sizeof(struct bdd_worker_data) + (sizeof(struct epoll_event) * bdd_gv.n_epoll_oevents)) * idx))
 extern struct bdd_gv bdd_gv;

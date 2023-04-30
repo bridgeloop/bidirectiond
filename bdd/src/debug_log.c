@@ -5,24 +5,21 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-int bdd_vdl_SSL_write(void *x, char *data, size_t len) {
-	if (len == 0) {
-		puts("SSL_write len is 0?");
-	}
+ssize_t bdd_vdl_SSL_write(void *x, char *data, size_t len) {
+	printf("[send %zi] ----------\n", len);
 	for (size_t idx = 0; idx < len; ++idx) {
-		if (data[idx] >= 0x20 && data[idx] <= 0x7e) {
+		if (data[idx] >= 0x20 && data[idx] <= 0x7e && data[idx] != '\\') {
 			putc(data[idx], stdout);
 		} else {
 			printf("\\x%02x", data[idx]);
 		}
 	}
-	putchar('\n');
-	return SSL_write(x, data, len);
+	ssize_t v = SSL_write(x, data, len);
+	printf("\n---------- [sent %zi]\n", v);
+	return v;
 }
-int bdd_vdl_send(int a, char *b, size_t c, int _) {
-	if (c == 0) {
-		puts("send len is 0?");
-	}
+ssize_t bdd_vdl_send(int a, char *b, size_t c, int _) {
+	printf("[send %zu] ----------\n", c);
 	for (size_t idx = 0; idx < c; ++idx) {
 		if (b[idx] >= 0x20 && b[idx] <= 0x7e) {
 			putc(b[idx], stdout);
@@ -30,8 +27,9 @@ int bdd_vdl_send(int a, char *b, size_t c, int _) {
 			printf("\\x%02x", b[idx]);
 		}
 	}
-	putchar('\n');
-	return send(a, b, c, _);
+	ssize_t v = send(a, b, c, _);
+	printf("\n---------- [sent %zi]\n", v);
+	return v;
 }
 int bdd_vdl_pthread_mutex_lock(void *_, char *name, int ln) {
 	printf("%p (%s) lock attempt @ %i!\n", _, name, ln);

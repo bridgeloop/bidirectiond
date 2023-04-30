@@ -13,6 +13,7 @@
 #include "headers/bdd_service.h"
 #include "headers/bdd_io.h"
 #include "headers/bdd_event.h"
+#include "headers/debug_log.h"
 
 void *bdd_get_associated(struct bdd_conversation *conversation) {
 	return conversation->associated.data;
@@ -81,6 +82,9 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 		io_array[idx].state = bdd_io_unused;
 		io_array[idx].conversation_id = id;
 	}
+	#ifndef NDEBUG
+	conversation->spawn = bdd_time();
+	#endif
 	conversation->state = bdd_conversation_obtained;
 	conversation->epoll_fd = epoll_fd;
 	conversation->tl = false;
@@ -109,6 +113,7 @@ void bdd_conversation_discard(struct bdd_conversation *conversation) {
 		}
 	}
 	if (conversation->state >= bdd_conversation_obtained) {
+		BDD_CONVERSATION_AGE_MS(conversation, "d");
 		conversation->state = bdd_conversation_unused;
 
 		if (!atomic_load(&(bdd_gv.exiting))) {

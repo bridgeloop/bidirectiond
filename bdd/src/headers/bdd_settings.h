@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <signal.h>
+#include <stdbool.h>
 
 struct bdd_settings {
 	int epoll_timeout;
@@ -13,6 +14,8 @@ struct bdd_settings {
 	sigset_t sigmask;
 
 	int *sockfds;
+
+	bool tcp_nodelay;
 };
 
 #endif

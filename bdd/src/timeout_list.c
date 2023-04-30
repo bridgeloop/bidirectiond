@@ -7,12 +7,9 @@
 #include "headers/conversations.h"
 
 time_t bdd_time(void) {
-	time_t ms = 0;
-	struct timeval x;
-	gettimeofday(&(x), NULL);
-	ms += x.tv_sec * 1000;
-	ms += x.tv_usec / 1000;
-	return ms;
+    struct timespec now;
+    clock_gettime(CLOCK_REALTIME, &(now));
+    return (now.tv_sec * 1000) + (now.tv_nsec / 1000000);
 }
 
 void bdd_tl_link(struct bdd_tl *timeout_list, struct bdd_conversation *conversation) {

@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <errno.h>
+#include <openssl/ssl.h>
 #include <signal.h>
 #include <sys/epoll.h>
 #include <unistd.h>
@@ -57,8 +58,6 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 	struct epoll_event *events = worker_data->events;
 	epoll:;
 
-	BDD_DEBUG_LOG("polling\n");
-
 	int n_events;
 	do {
 		n_events = epoll_wait(epoll_fd, events, bdd_gv.n_epoll_oevents, bdd_gv.epoll_timeout);
@@ -81,6 +80,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 			continue;
 		}
 		struct bdd_conversation *conversation = io_conversation(io);
+		BDD_CONVERSATION_AGE_MS(conversation, "event loop");
 		if (conversation->remove) {
 			continue;
 		}
@@ -231,8 +231,18 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 		}
 
 		if (conversation->n_ev != 0) {
+			BDD_CONVERSATION_AGE_MS(conversation, "s");
 			conversation->sosi.service->handle_events(conversation);
+			BDD_CONVERSATION_AGE_MS(conversation, "e");
 		}
+
+		#ifndef NDEBUG
+		for (bdd_io_id idx = 0; idx < BIDIRECTIOND_N_IO; ++idx) {
+			if (conversation->io_array[idx].state != bdd_io_unused && conversation->io_array[idx].ssl) {
+				assert(!SSL_has_pending(conversation->io_array[idx].io.ssl));
+			}
+		}
+		#endif
 
 		if (conversation->n_in_epoll_with_events == 0 || conversation->remove) {
 			conversation_discard:;

@@ -35,6 +35,10 @@ enum bdd_conversation_state {
 };
 
 struct bdd_conversation {
+	#ifndef NDEBUG
+	time_t spawn;
+	#endif
+
 	enum bdd_conversation_state state;
 	int epoll_fd;
 
