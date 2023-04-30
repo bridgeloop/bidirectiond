@@ -4,6 +4,7 @@
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
 #include <assert.h>
+#include <sys/socket.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <alloca.h>
@@ -433,6 +434,36 @@ enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, 
 	conversation_discard:;
 	conversation->remove = true;
 	return bdd_shutdown_conversation_discard;
+}
+void bdd_io_flush(struct bdd_conversation *conversation, bdd_io_id io_id) {
+	if (conversation->remove) {
+		fputs("programming error: bdd_io_flush called with an io_id of a discarded conversation\n", stderr);
+		abort();
+		return;
+	}
+	struct bdd_io *io = bdd_io(conversation, io_id);
+	if (io == NULL) {
+		fputs("programming error: bdd_io_flush called with invalid arguments\n", stderr);
+		abort();
+		return;
+	}
+	if (io->state != bdd_io_est || io->wrhup) {
+		fputs("programming error: bdd_io_flush called with an io_id which is in an invalid state\n", stderr);
+		abort();
+		return;
+	}
+
+	if (bdd_gv.tcp_nodelay) {
+		return;
+	}
+
+	int flag = 1;
+	int fd = bdd_io_fd(io);
+	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &(flag), sizeof(int));
+	flag = 0;
+	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &(flag), sizeof(int));
+
+	return;
 }
 
 void bdd_io_clean(struct bdd_io *io, enum bdd_io_state prev_state) {

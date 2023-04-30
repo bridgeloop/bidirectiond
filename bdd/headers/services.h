@@ -50,6 +50,7 @@ bool bdd_name_descs_add_service_instance(
 );
 
 __attribute__((warn_unused_result)) enum bdd_shutdown_status bdd_io_shutdown(struct bdd_conversation *conversation, bdd_io_id io_id);
+void bdd_io_flush(struct bdd_conversation *conversation, bdd_io_id io_id);
 
 void bdd_conversation_remove_later(struct bdd_conversation *conversation);
 

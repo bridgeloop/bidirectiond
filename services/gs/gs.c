@@ -92,10 +92,14 @@ void general_service__handle_events(struct bdd_conversation *conversation) {
 				case (1): {
 					goto err;
 				}
-				default:;
+				default: {
+					bdd_io_flush(conversation, io_id ^ 1);
+					break;
+				}
 			}
 		}
 	}
+
 
 	return;
 
