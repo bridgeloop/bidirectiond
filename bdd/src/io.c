@@ -281,6 +281,67 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 		}
 	}
 	return r;
+
+	conversation_discard:;
+	conversation->remove = true;
+	return -3;
+}
+
+__attribute__((warn_unused_result)) ssize_t bdd_io_read_pending(
+	struct bdd_conversation *conversation,
+	bdd_io_id io_id,
+	void *buf,
+	ssize_t sz
+) {
+	if (conversation->remove) {
+		fputs("programming error: bdd_io_read_pending called with an io_id of a discarded conversation\n", stderr);
+		abort();
+		return -1;
+	}
+	struct bdd_io *io = bdd_io(conversation, io_id);
+	if (io == NULL || buf == NULL || sz <= 0 || conversation->n_blocking > 0) {
+		fputs("programming error: bdd_io_read_pending called with invalid arguments\n", stderr);
+		abort();
+		return -1;
+	}
+	if (io->state < bdd_io_est || io->rdhup) {
+		fputs("programming error: bdd_io_read_pending called with an io_id which is in an invalid state\n", stderr);
+		abort();
+		return -1;
+	}
+
+	if (!io->ssl) {
+		return 0;
+	}
+
+	int pending = SSL_pending(io->io.ssl);
+	if (!pending) {
+		return 0;
+	}
+	if (pending < sz) {
+		sz = pending;
+	}
+	ssize_t r = SSL_read(io->io.ssl, buf, sz);
+	if (r <= 0) {
+		int err = SSL_get_error(io->io.ssl, r);
+		if (err == SSL_ERROR_WANT_WRITE) {
+			abort(); // fuck re-negotiation
+		} else if (err == SSL_ERROR_ZERO_RETURN /* received close_notify */) {
+			if (bdd_io_hup(io, true)) {
+				if (!bdd_io_discard(io)) {
+					goto conversation_discard;
+				}
+				return -2;
+			}
+			bdd_io_epoll_mod(io, bdd_epoll_in, 0, false);
+			return -4;
+		} else if (err == SSL_ERROR_WANT_READ) {
+			abort();
+		}
+		goto conversation_discard;
+	}
+	return r;
+
 	conversation_discard:;
 	conversation->remove = true;
 	return -3;

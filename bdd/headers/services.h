@@ -21,6 +21,12 @@ __attribute__((warn_unused_result)) ssize_t bdd_io_read(
 	void *buf,
 	ssize_t sz
 );
+__attribute__((warn_unused_result)) ssize_t bdd_io_read_pending(
+	struct bdd_conversation *conversation,
+	bdd_io_id io_id,
+	void *buf,
+	ssize_t sz
+);
 __attribute__((warn_unused_result)) ssize_t bdd_io_write(
 	struct bdd_conversation *conversation,
 	bdd_io_id io_id,

@@ -21,7 +21,13 @@ struct associated {
 static inline uint8_t serve(struct bdd_conversation *conversation, bdd_io_id from, bdd_io_id to) {
 	struct associated *associated = bdd_get_associated(conversation);
 	for (size_t it = 0;; ++it) {
-		ssize_t r = associated->n[to] = bdd_io_read(conversation, from, &(associated->buf[clsvb(to)]), buf_sz_each);
+		ssize_t r;
+		if (it < 10) {
+			r = bdd_io_read(conversation, from, &(associated->buf[clsvb(to)]), buf_sz_each);
+		} else {
+			r = bdd_io_read_pending(conversation, from, &(associated->buf[clsvb(to)]), buf_sz_each);
+		}
+		associated->n[to] = r;
 		if (r <= 0) {
 			return r * -1;
 		}
@@ -99,8 +105,7 @@ void general_service__handle_events(struct bdd_conversation *conversation) {
 			}
 		}
 	}
-
-
+	
 	return;
 
 	err:;
