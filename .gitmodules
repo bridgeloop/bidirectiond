@@ -1,4 +1,4 @@
 [submodule "hashmap"]
 	path = hashmap
-	url = https://git.tcp.direct/aiden/hashmap.git
+	url = https://github.com/bridgeloop/hashmap.git
 	branch = main
