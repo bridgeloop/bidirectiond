@@ -10,7 +10,6 @@
 
 #include <stdio.h>
 #include "conversations.h"
-#include "timeout_list.h"
 #define BDD_DEBUG_LOG(string, args...) (printf("[DEBUG] " string, ##args), fflush(stdout))
 #define BDD_CONVERSATION_AGE_MS(conversation, string, args...) (printf("[DEBUG conversation %p age %zums] " string "\n", conversation, bdd_time() - conversation->spawn, ##args), fflush(stdout))
 #ifdef BIDIRECTIOND_VERBOSE_DEBUG_LOG
@@ -27,6 +26,7 @@ int bdd_vdl_pthread_mutex_trylock(void *_, char *name, int ln);
 #define pthread_cond_wait(_, __) bdd_vdl_pthread_cond_wait(_, __, #__, __LINE__)
 #define pthread_mutex_trylock(x) bdd_vdl_pthread_mutex_trylock(x, #x, __LINE__)
 #endif
+#define abort() assert(0)
 
 #endif
 

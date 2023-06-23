@@ -40,7 +40,7 @@ int bdd_io_fd(struct bdd_io *io) {
 	}
 }
 
-uint32_t bdd_bepoll_to_epoll(uint8_t bepoll) {
+static inline uint32_t bepoll_to_epoll(uint8_t bepoll) {
 	uint32_t output = 0;
 	if (bepoll & bdd_epoll_in) {
 		output |= EPOLLIN;
@@ -79,10 +79,10 @@ void bdd_io_epoll_mod(struct bdd_io *io, uint8_t remove_events, uint8_t add_even
 			io_conversation(io)->n_in_epoll_with_events -= 1;
 		}
 		struct epoll_event ev = {
-			.events = bdd_bepoll_to_epoll(io->epoll_events),
+			.events = bepoll_to_epoll(io->epoll_events),
 			.data = { .ptr = io, },
 		};
-		if (epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_MOD, bdd_io_fd(io), &(ev)) != 0) {
+		if (epoll_ctl(io_conversation(io)->epoll_inst, EPOLL_CTL_MOD, bdd_io_fd(io), &(ev)) != 0) {
 			abort();
 		}
 	}
@@ -95,10 +95,10 @@ bool bdd_io_epoll_add(struct bdd_io *io) {
 	}
 	io->in_epoll = 1;
 	struct epoll_event ev = {
-		.events = bdd_bepoll_to_epoll(io->epoll_events),
+		.events = bepoll_to_epoll(io->epoll_events),
 		.data = { .ptr = io, },
 	};
-	if (epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_ADD, bdd_io_fd(io), &(ev)) != 0) {
+	if (epoll_ctl(io_conversation(io)->epoll_inst, EPOLL_CTL_ADD, bdd_io_fd(io), &(ev)) != 0) {
 		return false;
 	}
 	if ((io->epoll_events & ~bdd_epoll_et) != 0) {
@@ -108,11 +108,11 @@ bool bdd_io_epoll_add(struct bdd_io *io) {
 }
 
 void bdd_io_epoll_remove(struct bdd_io *io) {
-	if (!io->in_epoll || io_conversation(io)->epoll_fd < 0) {
+	if (!io->in_epoll || io_conversation(io)->epoll_inst < 0) {
 		return;
 	}
 	io->in_epoll = 0;
-	if (epoll_ctl(io_conversation(io)->epoll_fd, EPOLL_CTL_DEL, bdd_io_fd(io), NULL) != 0) {
+	if (epoll_ctl(io_conversation(io)->epoll_inst, EPOLL_CTL_DEL, bdd_io_fd(io), NULL) != 0) {
 		abort();
 	}
 	if ((io->epoll_events & ~bdd_epoll_et) != 0) {

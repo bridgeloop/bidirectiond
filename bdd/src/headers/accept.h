@@ -18,8 +18,8 @@ int bdd_alpn_cb(
 struct bdd_ssl_cb_ctx;
 int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_ssl_cb_ctx *ctx);
 struct bdd_worker_data;
-void bdd_accept(struct bdd_worker_data *worker_data);
+void bdd_accept(SSL_CTX *ssl_ctx);
 enum bdd_cont bdd_connect_continue(struct bdd_io *io);
-enum bdd_cont bdd_accept_continue(struct bdd_ssl_cb_ctx *ctx);
+enum bdd_cont bdd_accept_continue(SSL_CTX *ssl_ctx, struct bdd_ssl_cb_ctx *ctx);
 
 #endif

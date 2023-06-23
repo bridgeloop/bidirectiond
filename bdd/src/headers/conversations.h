@@ -40,11 +40,7 @@ struct bdd_conversation {
 	#endif
 
 	enum bdd_conversation_state state;
-	int epoll_fd;
-
-	int next;
-	int prev;
-	time_t accessed_at;
+	int epoll_inst;
 
 	bool tl : 1, remove : 1;
 
@@ -79,7 +75,7 @@ enum bdd_conversation_init_status bdd_conversation_init(
 );
 
 int bdd_io_fd(struct bdd_io *io);
-struct bdd_conversation *bdd_conversation_obtain(int epoll_fd);
+struct bdd_conversation *bdd_conversation_obtain(void);
 void bdd_conversation_discard(struct bdd_conversation *conversation);
 bool bdd_io_discard(struct bdd_io *io);
 

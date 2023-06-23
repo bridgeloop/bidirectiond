@@ -11,7 +11,7 @@ struct bdd_service_instance {
 };
 struct bdd_name_desc {
 	// one writer, multiple readers
-	// only protects this struct's members!! (obviously not the struct itself!!)
+	// only protects this struct's members, obviously not the struct itself!
 	pthread_rwlock_t rwlock;
 
 	X509 *x509;

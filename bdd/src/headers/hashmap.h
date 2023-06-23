@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 static bool chcd(char ch, uint8_t *cd) {
 	if (ch >= '0' && ch <= '9') {
@@ -17,8 +18,10 @@ static bool chcd(char ch, uint8_t *cd) {
 	return true;
 }
 static uint32_t HASHMAP_HASH_FUNCTION(char *input, uint32_t sz) {
-	uint8_t bytes[4] = { 0, 0, 0, 0, };
-	uint8_t prev[4] = { 0, 0, 0, 0, };
+	uint8_t buf[8];
+	memset(buf, 0, sizeof(buf));
+	uint8_t *bytes = (uint8_t *)buf;
+	uint8_t *prev = bytes + 4;
 	uint8_t bytes_idx = 0, cd;
 	for (uint32_t idx = 0; idx < sz; ++idx) {
 		if (!chcd(input[idx], &(cd))) {

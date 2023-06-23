@@ -7,12 +7,20 @@
 #include <time.h>
 #include <poll.h>
 #include <openssl/ssl.h>
+#include <stdbool.h>
 #include <stddef.h>
 
 #include "accept.h"
 #include "serve.h"
 
-void bdd_thread_exit(void);
+static inline time_t bdd_time(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_REALTIME, &(now));
+    return (now.tv_sec * 1000) + (now.tv_nsec / 1000000);
+}
+
+struct epoll_event bdd_epoll_conv(struct bdd_conversation *conv);
+void *bdd_thread_exit(struct bdd_worker_data *worker);
 
 struct bdd_gv {
 	SSL_CTX *cl_ssl_ctx;
@@ -21,16 +29,19 @@ struct bdd_gv {
 
 	atomic_bool exiting;
 
+	// this isn't atomic because i'm using a cond here anyway
 	int n_running_threads;
 	pthread_mutex_t n_running_threads_mutex;
 	pthread_cond_t n_running_threads_cond;
 
+	int eventfd;
+
+	int epoll_fd;
+	int serve_fd;
 	int n_epoll_oevents;
-	int epoll_timeout;
+	int timerfd_timeout;
 
 	void *name_descs;
-
-	int eventfd;
 
 	int n_conversations;
 	struct bdd_conversation *conversations;
@@ -42,12 +53,12 @@ struct bdd_gv {
 	} available_conversations;
 
 	unsigned short int n_workers;
-	struct bdd_worker_data *worker;
+	struct bdd_worker_data *workers;
 	unsigned short int workers_idx;
 
 	bool tcp_nodelay;
 };
-#define bdd_gv_worker(idx) (struct bdd_worker_data *)((char *)bdd_gv.worker + ((sizeof(struct bdd_worker_data) + (sizeof(struct epoll_event) * bdd_gv.n_epoll_oevents)) * idx))
+#define bdd_gv_worker(idx) ((struct bdd_worker_data *)((char *)bdd_gv.workers + ((sizeof(struct bdd_worker_data) + (sizeof(struct epoll_event) * bdd_gv.n_epoll_oevents)) * idx)))
 extern struct bdd_gv bdd_gv;
 
 #endif

@@ -31,8 +31,8 @@
 struct bdd_settings settings = {
 	.n_conversations = 0x100,
 	.n_epoll_oevents = 0x200,
-	.epoll_timeout = -1,
-	.sockfds = NULL,
+	.timerfd_timeout = -1,
+	.serve_fd = -1,
 	.tcp_nodelay = true,
 };
 
@@ -168,7 +168,7 @@ int main(int argc, char *argv[], char *env[]) {
 			arg += 2;
 		}  else if (strcmp((*arg), "--epoll-timeout") == 0) {
 			EXPECT_ARGS(1);
-			EXPECT(stoi(&(settings.epoll_timeout), arg[1]));
+			EXPECT(stoi(&(settings.timerfd_timeout), arg[1]));
 			arg += 2;
 		} else if (strcmp((*arg), "--max-conversations") == 0) {
 			EXPECT_ARGS(1);
@@ -346,16 +346,11 @@ int main(int argc, char *argv[], char *env[]) {
 		sv_addr.inet6.sin6_addr = in6addr_any;
 		sv_addr.inet6.sin6_port = htons(port);
 	}
-	// try to bind to port
-	sockfds = malloc(sizeof(int) * n_workers);
-	if (sockfds == NULL) {
-		goto clean_up;
-	}
-	for (; fuck_idx < n_workers; ++fuck_idx) {
+	{
 		int fd = socket(af, SOCK_STREAM | SOCK_NONBLOCK, 0);
 		if (fd < 0) {
 			fprintf(stderr, "failed to create sv_socket! errno: %i\n", errno);
-			goto sock_err;
+			goto clean_up;
 		}
 		int opt = 1;
 		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &(opt), sizeof(opt));
@@ -371,14 +366,14 @@ int main(int argc, char *argv[], char *env[]) {
 			fprintf(stderr, "failed to listen on sv_socket! errno: %i\n", errno);
 			goto sock_err;
 		}
-		sockfds[fuck_idx] = fd;
-		continue;
+		settings.serve_fd = fd;
 
-		sock_err:;
-		close(fd);
-		goto clean_up;
+		if (false) {
+			sock_err:;
+			close(fd);
+			goto clean_up;
+		}
 	}
-	settings.sockfds = sockfds;
 
 	setgid(ngid);
 	if (getuid() == 0) {

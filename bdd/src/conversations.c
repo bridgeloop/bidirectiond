@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <sys/epoll.h>
 
+#include "headers/accept.h"
 #include "headers/instance.h"
 #include "headers/serve.h"
 #include "headers/conversations.h"
@@ -55,7 +56,23 @@ inline bdd_io_id bdd_n_ev(struct bdd_conversation *conversation) {
 	return conversation->n_ev;
 }
 
-struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
+void bdd_accept_fd(bool enable) {
+	struct epoll_event ev;
+	if (enable) {
+		ev = bdd_epoll_conv(NULL);
+	} else {
+		ev = (struct epoll_event){
+			.events = 0,
+			.data = { .ptr = NULL, },
+		};
+	}
+	if (epoll_ctl(bdd_gv.epoll_fd, EPOLL_CTL_MOD, bdd_gv.serve_fd, &(ev)) != 0) {
+		abort();
+	}
+	return;
+}
+
+struct bdd_conversation *bdd_conversation_obtain(void) {
 	struct bdd_conversation *conversation;
 	pthread_mutex_lock(&(bdd_gv.available_conversations.mutex));
 	if (bdd_gv.available_conversations.idx == bdd_gv.n_conversations) {
@@ -64,16 +81,9 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 	}
 	int id = bdd_gv.available_conversations.ids[bdd_gv.available_conversations.idx++];
 	if (bdd_gv.available_conversations.idx == bdd_gv.n_conversations) {
-		for (size_t idx = 0; idx < bdd_gv.n_workers; ++idx) {
-			struct bdd_worker_data *worker_data = bdd_gv_worker(idx);
-			struct epoll_event ev = {
-				.events = 0,
-				.data = { .ptr = NULL, },
-			};
-			if (epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_MOD, worker_data->serve_fd, &(ev)) != 0) {
-				abort();
-			}
-		}
+		bdd_accept_fd(false);
+	} else {
+		bdd_accept_fd(true); // epolloneshot so "rearm"
 	}
 	pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));
 	conversation = &(bdd_gv.conversations[id]);
@@ -86,7 +96,6 @@ struct bdd_conversation *bdd_conversation_obtain(int epoll_fd) {
 	conversation->spawn = bdd_time();
 	#endif
 	conversation->state = bdd_conversation_obtained;
-	conversation->epoll_fd = epoll_fd;
 	conversation->tl = false;
 	conversation->remove = false;
 	conversation->sosi.service_instance = NULL;
@@ -129,16 +138,7 @@ void bdd_conversation_discard(struct bdd_conversation *conversation) {
 		bdd_gv.available_conversations.ids[--(bdd_gv.available_conversations.idx)] = id;
 
 		if (made_avail) {
-			for (size_t idx = 0; idx < bdd_gv.n_workers; ++idx) {
-				struct bdd_worker_data *worker_data = bdd_gv_worker(idx);
-				struct epoll_event ev = {
-					.events = EPOLLIN,
-					.data = { .ptr = NULL, },
-				};
-				if (epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_MOD, worker_data->serve_fd, &(ev)) != 0) {
-					abort();
-				}
-			}
+			bdd_accept_fd(true);
 		}
 
 		pthread_mutex_unlock(&(bdd_gv.available_conversations.mutex));

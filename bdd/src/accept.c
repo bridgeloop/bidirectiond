@@ -28,8 +28,17 @@ int bdd_alpn_cb(
 	unsigned char *outlen,
 	const unsigned char *_,
 	unsigned int __,
-	struct bdd_ssl_cb_ctx *ctx
+	struct bdd_ssl_cb_ctx *___
 ) {
+	uintptr_t find = (uintptr_t)&(client_ssl);
+	struct bdd_ssl_cb_ctx *ctx;
+	for (size_t it = 0; it < 0x4000; ++it) {
+		if (*(uintptr_t *)(find + it) == 0x9072348923641788) {
+			ctx = *(struct bdd_ssl_cb_ctx **)(find + it + 8);
+			break;
+		}
+	}
+
 	const unsigned char *protocol_name = ctx->protocol_name;
 	if (protocol_name == NULL) {
 		return SSL_TLSEXT_ERR_NOACK;
@@ -39,7 +48,16 @@ int bdd_alpn_cb(
 	return SSL_TLSEXT_ERR_OK;
 }
 
-int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_ssl_cb_ctx *ctx) {
+int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_ssl_cb_ctx *_) {
+	uintptr_t find = (uintptr_t)&(client_ssl);
+	struct bdd_ssl_cb_ctx *ctx = NULL;
+	for (size_t it = 0; it < 0x8000; ++it) {
+		if (*(uintptr_t *)(find + it) == 0x9072348923641788) {
+			ctx = *(struct bdd_ssl_cb_ctx **)(find + it + 8);
+			break;
+		}
+	}
+
 	struct bdd_conversation *conversation = ctx->conversation;
 	struct hashmap *name_descs = bdd_gv.name_descs;
 	struct hashmap_key key;
@@ -69,6 +87,7 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_ssl_cb_ctx *ctx) {
 	if (unlikely(name == NULL)) {
 		return SSL_CLIENT_HELLO_ERROR;
 	}
+
 
 	const unsigned char *alpn;
 	size_t alpn_sz;
@@ -198,9 +217,20 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_ssl_cb_ctx *ctx) {
 	return SSL_CLIENT_HELLO_SUCCESS;
 }
 
-enum bdd_cont bdd_accept_continue(struct bdd_ssl_cb_ctx *ctx) {
+void *gbl;
+
+enum bdd_cont bdd_accept_continue(SSL_CTX *ssl_ctx, struct bdd_ssl_cb_ctx *ctx) {
 	struct bdd_conversation *conversation = ctx->conversation;
 	struct bdd_io *io = conversation->io_array;
+
+	// openssl is _genuinely_ retarded
+	// i am pretty sure there's no avoiding this
+	uintptr_t buf[2];
+	buf[0] = 0x9072348923641788;
+	buf[1] = (uintptr_t)ctx;
+	gbl = &(buf);
+
+	SSL_set_SSL_CTX(io->io.ssl, ssl_ctx);
 	int r = SSL_accept(io->io.ssl);
 	if (r <= 0) {
 		r = SSL_get_error(io->io.ssl, r);
@@ -227,11 +257,9 @@ enum bdd_cont bdd_accept_continue(struct bdd_ssl_cb_ctx *ctx) {
 
 	struct epoll_event ev = {
 		.events = EPOLLIN,
-		.data = {
-			.ptr = io,
-		},
+		.data = { .ptr = io, },
 	};
-	if (epoll_ctl(conversation->epoll_fd, EPOLL_CTL_MOD, fd, &(ev)) != 0) {
+	if (epoll_ctl(conversation->epoll_inst, EPOLL_CTL_MOD, fd, &(ev)) != 0) {
 		abort();
 	}
 
@@ -270,24 +298,27 @@ enum bdd_cont bdd_connect_continue(struct bdd_io *io) {
 	return bdd_cont_established;
 }
 
-void bdd_accept(struct bdd_worker_data *worker_data) {
-	struct bdd_conversation *conversation = bdd_conversation_obtain(worker_data->epoll_fd);
-	if (conversation == NULL) {
-		return;
-	}
-	SSL *ssl = SSL_new(worker_data->ssl_ctx);
+void bdd_accept(SSL_CTX *ssl_ctx) {
+	struct bdd_conversation *conversation = NULL;
+
+	SSL *ssl = SSL_new(ssl_ctx);
 	int fd = -1;
 	if (ssl == NULL) {
 		goto err;
 	}
 
 	// accept
-	fd = accept(worker_data->serve_fd, NULL, NULL);
+	fd = accept(bdd_gv.serve_fd, NULL, NULL);
 	if (fd < 0) {
 		BDD_DEBUG_LOG("rejected tcp connection\n");
 		goto err;
 	}
 	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+
+	conversation = bdd_conversation_obtain();
+	if (conversation == NULL) {
+		return;
+	}
 
 	if (!SSL_set_fd(ssl, fd)) {
 		goto err;
@@ -296,22 +327,21 @@ void bdd_accept(struct bdd_worker_data *worker_data) {
 	struct bdd_io *io = conversation->io_array;
 	struct epoll_event ev = {
 		.events = EPOLLIN | EPOLLOUT | EPOLLET,
-		.data = {
-			.ptr = io,
-		},
+		.data = { .ptr = io, },
 	};
-	if (epoll_ctl(worker_data->epoll_fd, EPOLL_CTL_ADD, fd, &(ev)) != 0) {
+	if (epoll_ctl(conversation->epoll_inst, EPOLL_CTL_ADD, fd, &(ev)) != 0) {
 		goto err;
 	}
-	bdd_tl_link(&(worker_data->timeout_list), conversation);
 
+	ev = bdd_epoll_conv(conversation);
+	if (epoll_ctl(bdd_gv.epoll_fd, EPOLL_CTL_MOD, conversation->epoll_inst, &(ev)) != 0) {
+		abort();
+	}
 
 	conversation->state = bdd_conversation_accept;
 	conversation->n_in_epoll_with_events = 1;
 
-
 	io->state = bdd_io_est;
-
 
 	io->rdhup = 0;
 	io->wrhup = 0;
@@ -321,9 +351,7 @@ void bdd_accept(struct bdd_worker_data *worker_data) {
 
 	io->in_epoll = 1;
 
-
 	io->epoll_events = bdd_epoll_in;
-
 
 	io->io.ssl = ssl;
 
@@ -331,7 +359,9 @@ void bdd_accept(struct bdd_worker_data *worker_data) {
 
 	err:;
 	BDD_DEBUG_LOG("failed to accept connection\n");
-	bdd_conversation_discard(conversation);
+	if (conversation != NULL) {
+		bdd_conversation_discard(conversation);
+	}
 	if (ssl != NULL) {
 		SSL_free(ssl);
 	}
