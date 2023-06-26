@@ -13,13 +13,12 @@ int bdd_alpn_cb(
 	unsigned char *outlen,
 	const unsigned char *_,
 	unsigned int __,
-	struct bdd_ssl_cb_ctx *ctx
+	void *___
 );
-struct bdd_ssl_cb_ctx;
-int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_ssl_cb_ctx *ctx);
 struct bdd_worker_data;
+int bdd_hello_cb(SSL *client_ssl, int *alert, void *_);
 void bdd_accept(SSL_CTX *ssl_ctx);
 enum bdd_cont bdd_connect_continue(struct bdd_io *io);
-enum bdd_cont bdd_accept_continue(SSL_CTX *ssl_ctx, struct bdd_ssl_cb_ctx *ctx);
+enum bdd_cont bdd_accept_continue(SSL_CTX *ssl_ctx);
 
 #endif

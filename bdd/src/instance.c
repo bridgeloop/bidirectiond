@@ -13,6 +13,8 @@
 #include "headers/bdd_settings.h"
 #include "headers/serve.h"
 
+__thread struct bdd_ssl_cb_ctx *bdd_ssl_cb_ctx;
+
 #define elsewhere 0
 struct bdd_gv bdd_gv = {
 	.cl_ssl_ctx = NULL,
@@ -139,6 +141,7 @@ void bdd_destroy(void) {
 static void *thread_init(struct bdd_worker_data *worker_data) {
 	pthread_sigmask(SIG_BLOCK, &(bdd_gv.sigmask), NULL);
 	worker_data->ssl_cb_ctx.area = hashmap_area(bdd_gv.name_descs);
+	bdd_ssl_cb_ctx = &(worker_data->ssl_cb_ctx);
 	return bdd_serve(worker_data);
 }
 
@@ -265,8 +268,8 @@ bool bdd_go(struct bdd_settings settings) {
 
 		SSL_CTX *ssl_ctx = bdd_ssl_ctx_skel();
 
-		SSL_CTX_set_client_hello_cb(ssl_ctx, (void *)bdd_hello_cb, &(worker_data->ssl_cb_ctx));
-		SSL_CTX_set_alpn_select_cb(ssl_ctx, (void *)bdd_alpn_cb, &(worker_data->ssl_cb_ctx));
+		SSL_CTX_set_client_hello_cb(ssl_ctx, (void *)bdd_hello_cb, NULL);
+		SSL_CTX_set_alpn_select_cb(ssl_ctx, (void *)bdd_alpn_cb, NULL);
 		worker_data->ssl_ctx = ssl_ctx;
 
 		if (pthread_create(&(pthid), NULL, (void *(*)(void *))(&(thread_init)), worker_data) != 0) {

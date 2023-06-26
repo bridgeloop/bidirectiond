@@ -181,7 +181,7 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 			worker_data->ssl_cb_ctx.conversation = conversation;
 			worker_data->ssl_cb_ctx.protocol_name =
 				(void *)(worker_data->ssl_cb_ctx.cstr_protocol_name = NULL);
-			if (bdd_accept_continue(worker_data->ssl_ctx, &(worker_data->ssl_cb_ctx)) == bdd_cont_conversation_discard) {
+			if (bdd_accept_continue(worker_data->ssl_ctx) == bdd_cont_conversation_discard) {
 				bdd_conversation_discard(conversation);
 			} else {
 				if (epoll_ctl(bdd_gv.epoll_fd, EPOLL_CTL_MOD, conversation->epoll_inst, &(rearm)) != 0) {

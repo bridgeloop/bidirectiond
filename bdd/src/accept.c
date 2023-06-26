@@ -22,24 +22,17 @@
 #include "headers/bdd_stop.h"
 #include "headers/hashmap.h"
 
+extern __thread struct bdd_ssl_cb_ctx *bdd_ssl_cb_ctx;
+
 int bdd_alpn_cb(
 	SSL *client_ssl,
 	const unsigned char **out,
 	unsigned char *outlen,
 	const unsigned char *_,
 	unsigned int __,
-	struct bdd_ssl_cb_ctx *___
+	void *___
 ) {
-	uintptr_t find = (uintptr_t)&(client_ssl);
-	struct bdd_ssl_cb_ctx *ctx;
-	for (size_t it = 0; it < 0x4000; ++it) {
-		if (*(uintptr_t *)(find + it) == 0x9072348923641788) {
-			ctx = *(struct bdd_ssl_cb_ctx **)(find + it + 8);
-			break;
-		}
-	}
-
-	const unsigned char *protocol_name = ctx->protocol_name;
+	const unsigned char *protocol_name = bdd_ssl_cb_ctx->protocol_name;
 	if (protocol_name == NULL) {
 		return SSL_TLSEXT_ERR_NOACK;
 	}
@@ -48,17 +41,8 @@ int bdd_alpn_cb(
 	return SSL_TLSEXT_ERR_OK;
 }
 
-int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_ssl_cb_ctx *_) {
-	uintptr_t find = (uintptr_t)&(client_ssl);
-	struct bdd_ssl_cb_ctx *ctx = NULL;
-	for (size_t it = 0; it < 0x8000; ++it) {
-		if (*(uintptr_t *)(find + it) == 0x9072348923641788) {
-			ctx = *(struct bdd_ssl_cb_ctx **)(find + it + 8);
-			break;
-		}
-	}
-
-	struct bdd_conversation *conversation = ctx->conversation;
+int bdd_hello_cb(SSL *client_ssl, int *alert, void *_) {
+	struct bdd_conversation *conversation = bdd_ssl_cb_ctx->conversation;
 	struct hashmap *name_descs = bdd_gv.name_descs;
 	struct hashmap_key key;
 	int r = SSL_CLIENT_HELLO_ERROR;
@@ -117,7 +101,7 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_ssl_cb_ctx *_) {
 			&(key)
 		);
 		struct bdd_name_desc *name_desc;
-		if (hashmap_cas(name_descs, ctx->area, &(key), (void **)&(name_desc), NULL, hashmap_cas_get, (void *)1) == hashmap_cas_again) {
+		if (hashmap_cas(name_descs, bdd_ssl_cb_ctx->area, &(key), (void **)&(name_desc), NULL, hashmap_cas_get, (void *)1) == hashmap_cas_again) {
 			if (!(found_req & 0b01) && name_desc->x509 != NULL) {
 				found_req |= 0b01;
 				// this does up the rc
@@ -146,8 +130,8 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_ssl_cb_ctx *_) {
 						if (found == NULL) {
 							// ...then use this service
 							found = inst;
-							assert(ctx->protocol_name == NULL);
-							assert(ctx->cstr_protocol_name == NULL);
+							assert(bdd_ssl_cb_ctx->protocol_name == NULL);
+							assert(bdd_ssl_cb_ctx->cstr_protocol_name == NULL);
 						}
 						// skip the for loop
 						goto alpn_find_iter;
@@ -172,8 +156,8 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_ssl_cb_ctx *_) {
 								) == 0
 							) {
 								alpn_sz = alpn_idx; // includes the length byte
-								ctx->protocol_name = &(alpn[alpn_idx]);
-								ctx->cstr_protocol_name = sp[sp_idx];
+								bdd_ssl_cb_ctx->protocol_name = &(alpn[alpn_idx]);
+								bdd_ssl_cb_ctx->cstr_protocol_name = sp[sp_idx];
 								found = inst;
 								// the rest of the service's implemented protocols
 								// cannot be more preferred by the client
@@ -217,18 +201,9 @@ int bdd_hello_cb(SSL *client_ssl, int *alert, struct bdd_ssl_cb_ctx *_) {
 	return SSL_CLIENT_HELLO_SUCCESS;
 }
 
-void *gbl;
-
-enum bdd_cont bdd_accept_continue(SSL_CTX *ssl_ctx, struct bdd_ssl_cb_ctx *ctx) {
-	struct bdd_conversation *conversation = ctx->conversation;
+enum bdd_cont bdd_accept_continue(SSL_CTX *ssl_ctx) {
+	struct bdd_conversation *conversation = bdd_ssl_cb_ctx->conversation;
 	struct bdd_io *io = conversation->io_array;
-
-	// openssl is _genuinely_ retarded
-	// i am pretty sure there's no avoiding this
-	uintptr_t buf[2];
-	buf[0] = 0x9072348923641788;
-	buf[1] = (uintptr_t)ctx;
-	gbl = &(buf);
 
 	SSL_set_SSL_CTX(io->io.ssl, ssl_ctx);
 	int r = SSL_accept(io->io.ssl);
@@ -246,7 +221,7 @@ enum bdd_cont bdd_accept_continue(SSL_CTX *ssl_ctx, struct bdd_ssl_cb_ctx *ctx) 
 
 	struct bdd_service_instance *service_inst = conversation->sosi.service_instance;
 	conversation->sosi.service = service_inst->service;
-	const char *cstr_protocol_name = ctx->cstr_protocol_name;
+	const char *cstr_protocol_name = bdd_ssl_cb_ctx->cstr_protocol_name;
 	conversation->associated.data = NULL;
 	conversation->associated.destructor = NULL;
 	conversation->state = bdd_conversation_established;
