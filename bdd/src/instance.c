@@ -33,7 +33,7 @@ struct bdd_gv bdd_gv = {
 		.idx = 0,
 	},
 
-	.worker = NULL,
+	.workers = NULL,
 	.workers_idx = 0,
 
 	.tcp_nodelay = true,
@@ -59,14 +59,21 @@ SSL_CTX *bdd_ssl_ctx_skel(void) {
 	return NULL;
 }
 
-void bdd_thread_exit(void) {
+void *bdd_thread_exit(struct bdd_worker_data *worker) {
+	hashmap_area_release(bdd_gv.name_descs, worker->ssl_cb_ctx.area);
 	pthread_mutex_lock(&(bdd_gv.n_running_threads_mutex));
 	if ((bdd_gv.n_running_threads -= 1) == 0) {
 		pthread_cond_signal(&(bdd_gv.n_running_threads_cond));
 	}
 	pthread_mutex_unlock(&(bdd_gv.n_running_threads_mutex));
 	pthread_exit(NULL);
-	return;
+	return NULL;
+}
+
+static void *thread_init(struct bdd_worker_data *worker_data) {
+	pthread_sigmask(SIG_BLOCK, &(bdd_gv.sigmask), NULL);
+	worker_data->ssl_cb_ctx.area = hashmap_area(bdd_gv.name_descs);
+	return bdd_serve(worker_data);
 }
 
 void bdd_stop(void) {
@@ -88,9 +95,7 @@ void bdd_wait(void) {
 	return;
 }
 void bdd_destroy(void) {
-	if (bdd_gv.cl_ssl_ctx != NULL) {
-		SSL_CTX_free(bdd_gv.cl_ssl_ctx);
-	}
+	SSL_CTX_free(bdd_gv.cl_ssl_ctx);
 
 	pthread_mutex_destroy(&(bdd_gv.n_running_threads_mutex));
 	pthread_cond_destroy(&(bdd_gv.n_running_threads_cond));
@@ -204,11 +209,9 @@ bool bdd_go(struct bdd_settings settings) {
 	// serve
 	pthread_mutex_lock(&(bdd_gv.n_running_threads_mutex));
 	locked = true;
-	struct bdd_worker_data *worker_data = (struct bdd_worker_data *)&(bdd_gv.available_conversations.ids[settings.n_conversations]);
-	bdd_gv.worker = worker_data;
-	#define next_worker_data \
-		(struct bdd_worker_data *)((char *)worker_data + sizeof(struct bdd_worker_data) + (sizeof(struct epoll_event) * settings.n_epoll_oevents))
+	bdd_gv.workers = (struct bdd_worker_data *)&(bdd_gv.available_conversations.ids[settings.n_conversations]);
 	for (bdd_gv.workers_idx = 0; bdd_gv.workers_idx < bdd_gv.n_workers; ++bdd_gv.workers_idx) {
+		struct bdd_worker_data *worker_data = bdd_gv_worker(bdd_gv.workers_idx);
 		int epoll_fd = epoll_create1(0);
 		SSL_CTX *ssl_ctx = bdd_ssl_ctx_skel();
 		bdd_tl_init(&(worker_data->timeout_list));
@@ -221,7 +224,6 @@ bool bdd_go(struct bdd_settings settings) {
 		};
 		worker_data->epoll_fd = epoll_fd;
 		worker_data->ssl_ctx = ssl_ctx;
-		worker_data->ssl_cb_ctx.area = hashmap_area(bdd_gv.name_descs);
 		SSL_CTX_set_client_hello_cb(ssl_ctx, (void *)bdd_hello_cb, &(worker_data->ssl_cb_ctx));
 		SSL_CTX_set_alpn_select_cb(ssl_ctx, (void *)bdd_alpn_cb, &(worker_data->ssl_cb_ctx));
 		worker_data->serve_fd = settings.sockfds[bdd_gv.workers_idx];
@@ -232,19 +234,16 @@ bool bdd_go(struct bdd_settings settings) {
 			goto worker_create_err;
 		}
 
-		if (pthread_create(&(pthid), NULL, (void *(*)(void *))(&(bdd_serve)), worker_data) != 0) {
+		if (pthread_create(&(pthid), NULL, (void *(*)(void *))(&(thread_init)), worker_data) != 0) {
 			goto worker_create_err;
 		}
 
-		worker_data = next_worker_data;
 		bdd_gv.n_running_threads += 1;
 		continue;
 
 		worker_create_err:;
 		close(epoll_fd);
-		if (ssl_ctx != NULL) {
-			SSL_CTX_free(ssl_ctx);
-		}
+		SSL_CTX_free(ssl_ctx);
 		goto err;
 	}
 

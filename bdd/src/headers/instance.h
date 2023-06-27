@@ -12,7 +12,7 @@
 #include "accept.h"
 #include "serve.h"
 
-void bdd_thread_exit(void);
+void *bdd_thread_exit(struct bdd_worker_data *worker);
 
 struct bdd_gv {
 	SSL_CTX *cl_ssl_ctx;
@@ -42,12 +42,12 @@ struct bdd_gv {
 	} available_conversations;
 
 	unsigned short int n_workers;
-	struct bdd_worker_data *worker;
+	struct bdd_worker_data *workers;
 	unsigned short int workers_idx;
 
 	bool tcp_nodelay;
 };
-#define bdd_gv_worker(idx) (struct bdd_worker_data *)((char *)bdd_gv.worker + ((sizeof(struct bdd_worker_data) + (sizeof(struct epoll_event) * bdd_gv.n_epoll_oevents)) * idx))
+#define bdd_gv_worker(idx) (struct bdd_worker_data *)((char *)bdd_gv.workers + ((sizeof(struct bdd_worker_data) + (sizeof(struct epoll_event) * bdd_gv.n_epoll_oevents)) * idx))
 extern struct bdd_gv bdd_gv;
 
 #endif

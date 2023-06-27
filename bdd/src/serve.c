@@ -49,8 +49,6 @@ static inline void process_unlink(struct bdd_conversation **list, struct bdd_con
 }
 
 void *bdd_serve(struct bdd_worker_data *worker_data) {
-	pthread_sigmask(SIG_BLOCK, &(bdd_gv.sigmask), NULL);
-	unsigned short int next_worker_id = 0;
 	struct bdd_conversation *process_list = NULL;
 	struct bdd_conversation *remove_list = NULL;
 	struct bdd_tl *timeout_list = &(worker_data->timeout_list);
@@ -65,10 +63,10 @@ void *bdd_serve(struct bdd_worker_data *worker_data) {
 	if (unlikely(n_events < 0)) {
 		fprintf(stderr, "bidirectiond epoll error: %i - try increasing your rlimits for open files\n", errno);
 		bdd_stop();
-		bdd_thread_exit();
+		return bdd_thread_exit(worker_data);
 	}
 	if (unlikely(atomic_load(&(bdd_gv.exiting)))) {
-		bdd_thread_exit();
+		return bdd_thread_exit(worker_data);
 	}
 
 	for (int idx = 0; idx < n_events; ++idx) {
